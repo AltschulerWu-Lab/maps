@@ -1,0 +1,40 @@
+{
+    "name": "vignette_example",  
+    "root": "/home/kkumbier/als",
+    "screen": "20250216_AWALS37_Full_screen_n96", 
+    "eval_dir": "Evaluation1",
+    "data_file": "Objects_Population - Nuclei Selected.txt",
+    "preprocess": {
+        "drop_na_features": {"na_prop": 0.1},
+        "select_sample_by_feature": {
+            "select_key": [
+                {"Drugs": ["DMSO"]},
+                {"Mutations": ["WT", "C9orf72"]}
+            ]
+        },
+        "select_feature_types": {
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
+        },
+        "drop_feature_types": {
+            "feature_str": "^.*Sum$"
+        },
+        "drop_constant_features":{}
+    },
+    "analysis": {
+        "PCAnalysis": {
+            "components":[1, 2], 
+            "hue": "Mutations"
+        },
+        "MAP": {
+            "model": {
+                "Delearner": {
+                    "epochs":5, 
+                    "batch_size":100,
+                    "verbose": 1
+                }
+            },
+            "response": ["Mutations", "NCells"],
+            "fitter": "sample_split"
+        }
+    }
+}   
