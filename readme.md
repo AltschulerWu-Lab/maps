@@ -174,10 +174,6 @@ plt = plot_cell_count(screen)
 plt.show()
 ```
 
-    /home/kkumbier/als/.venv/lib/python3.12/site-packages/maps/eda.py:70: UserWarning: set_ticklabels() should only be used with a fixed number of ticks, i.e. after set_ticks() or using a FixedLocator.
-      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-
-
 
     
 ![png](readme_files/readme_6_1.png)
@@ -193,11 +189,6 @@ screen = drop_sample_by_feature(screen, drop_key=[{"CellLines": ["C9014"]}])
 plt = plot_cell_count(screen)
 plt.show()
 ```
-
-    /home/kkumbier/als/.venv/lib/python3.12/site-packages/maps/eda.py:70: UserWarning: set_ticklabels() should only be used with a fixed number of ticks, i.e. after set_ticks() or using a FixedLocator.
-      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-
-
 
     
 ![png](readme_files/readme_8_1.png)
@@ -283,25 +274,6 @@ plt.show()
 
 
     ---------------------------------------------------------------------------
-
-    AttributeError                            Traceback (most recent call last)
-
-    Cell In[8], line 8
-          5 map_analysis = MAP(screen)
-          6 map_analysis.fit()
-    ----> 8 plt = map_analysis.generate_figs()
-          9 plt.show()
-
-
-    AttributeError: 'MAP' object has no attribute 'generate_figs'
-
-
-
-```python
-plt = map_analysis.make_fig()
-plt.show()
-```
-
 
     
 ![png](readme_files/readme_13_0.png)
