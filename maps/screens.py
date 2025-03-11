@@ -91,9 +91,10 @@ class ImageScreen(ScreenBase):
 def categorize(response):
     if np.issubdtype(response.dtype, np.number):
         return response
-    
-    encoder = LabelEncoder()
-    return encoder.fit_transform(response)
+
+    unique_response = np.unique(response)
+    ordered = list(sorted(unique_response, key=lambda x: x != "WT"))
+    return np.array([ordered.index(r) for r in response])
 
 if __name__ == "__main__":
     import os
