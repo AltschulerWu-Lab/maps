@@ -7,7 +7,33 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from maps.screens import ScreenBase
+
+def drop_cells_by_morphology(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    """Drop cells by applying morphology filters"""
+    feature_filters = kwargs.get("feature_filters") 
+    df = x.data
     
+    # Group by ID and apply filtering to each group
+    filtered_dfs = [
+        qt_filter_feature(dfg[1], feature_filters) for dfg in df.group_by('ID')
+    ]
+    
+    x.data = pl.concat(filtered_dfs)
+    return x
+
+
+def qt_filter_feature(df, feature_filters):
+    """Filters df at alpha / 1 - alpha quantile of feature"""
+    group_lst = []
+
+    for f, alpha in feature_filters.items():
+        q_low = df[f].quantile(alpha)
+        q_high = df[f].quantile(1-alpha)
+        group_lst.append((df[f] >= q_low) & (df[f] <= q_high))
+    
+    return df.filter(pl.all_horizontal(group_lst))
+
+
 def drop_na_features(x: "ScreenBase", **kwargs) -> "ScreenBase":
     "Drop columns exceeding NA threshold, replace with mean otherwise"
     
