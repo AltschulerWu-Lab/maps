@@ -2,46 +2,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import polars as pl
 
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-
-
-def pca(screen):
-    "Runs PCA on screen data, aggregated by well"
-    x_well = screen.data.group_by("ID").mean()
-    xid = x_well.select("ID")
-    xfeat = x_well.drop("ID")
-
-    # Convert to NumPy array and standardize features
-    scaler = StandardScaler()
-    data_scaled = scaler.fit_transform(xfeat.to_numpy())
-
-    # Perform PCA
-    pca = PCA()
-    principle_components = pca.fit_transform(data_scaled)
-    
-    pca_df = pl.DataFrame(principle_components) \
-        .with_columns(xid)
-    
-    return pca_df
-
-def plot_pca(pca_df: pl.DataFrame, screen, components=(1, 2), hue="Mutations"):
-    "Plots PCA projection"
-    pcs = ["column_{i}".format(i=ii - 1) for ii in components]
-    pca_df = pca_df.select(pcs + ["ID"])
-    pca_df = pca_df.join(screen.metadata, on="ID")
-
-    # Plot the first two principal components
-    plt.figure(figsize=(8, 6))
-    sns.scatterplot(x=pca_df[pcs[0]], y=pca_df[pcs[1]], hue=pca_df[hue])
-    plt.xlabel(f"Principal Component {components[0]}")
-    plt.ylabel(f"Principal Component {components[1]}")
-    plt.title("PCA projection")
-    plt.grid(True)
-
-    return plt
-
-
 def plot_cell_count(screen):
     "Generates plot of average cell count by cell line"
     xplot = screen.metadata \

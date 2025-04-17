@@ -1,0 +1,22 @@
+{
+    "name": "quality_control", 
+    "screen": "20250216_AWALS37_Full_screen_n96",
+    "root": "/awlab/projects/2024_ALS/Experiments",
+    "data_file": "Objects_Population - Nuclei Selected.txt",
+    "eval_dir": "Evaluation1",
+    "preprocess": {
+        "drop_na_features": {"na_prop": 0.1},
+        "select_sample_by_feature": {
+            "select_key": [
+                {"Drugs": ["DMSO"]}
+            ]
+        },
+        "select_feature_types": {
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
+        },
+        "drop_feature_types": {
+            "feature_str": "^.*Sum$"
+        },
+        "drop_constant_features":{}
+    }
+}   

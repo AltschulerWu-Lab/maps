@@ -1,16 +1,12 @@
 """
 Screens are the basic container for storing and running an entire analysis pipeline, including: data loading and preprocessing, exploratory figures, and quantitative analyses.
 
-The BaseScreen class is modality independent. Modality-specific Screen classes may be defined to handle loading of different data types.
+The BaseScreen class is modality independent. Modality-specific Screen classes extend the `ScreenBase` class to handle loading of different data types.
 """
 from maps.loaders import OperettaLoader
 from maps.processing import *
 from maps.analyses import *
-from maps.eda import *
-from sklearn.preprocessing import LabelEncoder
-
-import numpy as np
-
+from maps.screen_utils import categorize
 
 class ScreenBase():
     "Base class for processing data from a screen"
@@ -20,7 +16,9 @@ class ScreenBase():
         self.data = None
         self.metadata = None
     
-    def get_response(self, encode_categorical=True):    
+    def get_response(self, encode_categorical=True):
+        "Generate vector of response values as specified by analysis.MAP.response key of screen params."    
+        
         # Load response vectors as indicated in params
         assert(self.data is not None)
         assert(self.metadata is not None)
@@ -43,32 +41,33 @@ class ScreenBase():
         return y
     
     def get_data(self):
+        "Generate data matrix"
         return self.data
             
-    def run(self, fun, args):
+    def _run(self, fun, args):
         "Generic function runner"
         return eval(fun)(self, **args)
         
     def preprocess(self):
-        "Run all steps in params preprocessing"
+        "Run all data processing steps as specified in the preprocessing key of screen params."
         assert self.data is not None
         assert self.metadata is not None
                 
         for f, v in self.params.get("preprocess").items():
-            self = self.run(f, v)
+            self = self._run(f, v)
             
         self.preprocessed = True
         
-    def eda(self):
+    def _eda(self):
         "Run eda modules specified in params"
         pass
     
     def run_analysis(self):
-        "Run analysis modules specified in params"
+        "Run analysis modules as specified in the analysis key of screen params."
         analyses = {}
         for analysis in self.params.get("analysis"):
             analyses[analysis] = eval(analysis)(self)
-            analyses[analysis].run()
+            analyses[analysis]._run()
         
 
 class ImageScreen(ScreenBase):
@@ -88,22 +87,8 @@ class ImageScreen(ScreenBase):
         self.metadata = dfmeta
         
 
-def categorize(response):
-    if np.issubdtype(response.dtype, np.number):
-        return response
-
-    unique_response = np.unique(response)
-    ordered = list(sorted(unique_response, key=lambda x: x != "WT"))
-    return np.array([ordered.index(r) for r in response])
-
 if __name__ == "__main__":
-    import os
     import json    
-    
-    # Set CUDA environment
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    os.environ["CUDA_VISIBLE_DEVICES"] = '3'
     
     with open("/home/kkumbier/als/scripts/python/params.json", "r") as f:
         params = json.load(f)

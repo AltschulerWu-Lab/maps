@@ -1,61 +1,31 @@
-import tensorflow as tf
-from tensorflow import keras
 import polars as pl
 import numpy as np
-import tensorflow as tf
 
-def l2_normalize(df: pl.DataFrame) -> np.ndarray:
-    # Convert Polars DataFrame to NumPy array
-    np_array = df.drop("ID").to_numpy()
+from imblearn.over_sampling import RandomOverSampler
+from imblearn.under_sampling import RandomUnderSampler
+
+def balanced_sample(
+    x: pl.DataFrame, y: np.ndarray, type: str="down", random_state: int=47): 
+    """Take a balanced sample of binary data through up or down sampling. 
     
-    # L2 normalize each column
-    norms = np.linalg.norm(np_array, axis=0)
-    normalized_array = np_array / norms
+    Args:
     
-    return normalized_array
-
-
-def cor(y_true, y_pred):
-    """ Pearson correlation loss for adversarial training """
-    yt = y_true - tf.reduce_mean(y_true)
-    yp = y_pred - tf.reduce_mean(y_pred)
-    num = tf.reduce_sum(yt * yp)
-    denom = tf.sqrt(tf.reduce_sum(yt ** 2)) * tf.sqrt(tf.reduce_sum(yp ** 2))
-    return num / (denom + 1e-7)
-
-
-def rmse(y_true, y_pred):
-    """ Root mean squared error """
-    rmse = tf.sqrt(tf.reduce_mean(tf.square(y_pred - y_true)))
-    var = tf.reduce_mean(tf.square(y_true - tf.reduce_mean(y_true)))
-    return rmse / (var + 1e-7)
-
-
-class GradientReversal(keras.layers.Layer):
-    """Flip the sign of gradient during training.
-    based on https://github.com/michetonu/gradient_reversal_keras_tf
-    ported to tf 2.x
+        x (pl.DataFrame): DataFrame containing the data to be sampled.
+        y (np.ndarray): Array of labels corresponding to the data.
+        type (str): Type of sampling to perform. "up" for oversampling, "down" for undersampling.
+        random_state (int): Random state for reproducibility.
+    
     """
+    
+    if type == "up":
+        sampler = RandomOverSampler(random_state=random_state)
+    elif type == "down":
+        sampler = RandomUnderSampler(random_state=random_state)
+    else:
+        raise ValueError("type must be 'up' or 'down'")
+    
+    idx_array = np.arange(len(x))
+    sampled_idx, sampled_y = sampler.fit_resample(idx_array.reshape(-1, 1), y)
+    sampled_x = x[sampled_idx.ravel()]
 
-    def __init__(self, λ=1, **kwargs):
-        super(GradientReversal, self).__init__(**kwargs)
-        self.λ = λ
-
-    @staticmethod
-    @tf.custom_gradient
-    def reverse_gradient(x, λ):
-        # @tf.custom_gradient suggested by Hoa's comment at
-        # https://stackoverflow.com/questions/60234725/how-to-use-gradient-override-map-with-tf-gradienttape-in-tf2-0
-        return tf.identity(x), lambda dy: (-dy, None)
-
-    def call(self, x):
-        return self.reverse_gradient(x, self.λ)
-
-    def compute_mask(self, inputs, mask=None):
-        return mask
-
-    def compute_output_shape(self, input_shape):
-        return input_shape
-
-    def get_config(self):
-        return super(GradientReversal, self).get_config() | {'λ': self.λ}
+    return sampled_x, sampled_y

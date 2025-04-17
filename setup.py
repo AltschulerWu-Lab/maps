@@ -10,8 +10,8 @@ setup(
         'seaborn', 
         'matplotlib', 
         'scikit-learn', 
-        'tensorflow', 
-        'numpy'
+        'numpy',
+        'imblearn'
     ],
     include_package_data=True,  # Includes non-code files (if using MANIFEST.in)
     author="Karl Kumbier",

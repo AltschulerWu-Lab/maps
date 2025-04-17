@@ -1,6 +1,6 @@
 {
     "name": "vignette_example",  
-    "root": "/home/kkumbier/als",
+    "root": "/awlab/projects/2024_ALS/Experiments",
     "screen": "20250216_AWALS37_Full_screen_n96", 
     "eval_dir": "Evaluation1",
     "data_file": "Objects_Population - Nuclei Selected.txt",
@@ -27,13 +27,12 @@
         },
         "MAP": {
             "model": {
-                "Delearner": {
-                    "epochs":5, 
-                    "batch_size":100,
-                    "verbose": 1
+                "BinaryLogistic": {
+                    "tol":1e-2, 
+                    "solver": "saga"
                 }
             },
-            "response": ["Mutations", "NCells"],
+            "response": "Mutations",
             "fitter": "sample_split"
         }
     }

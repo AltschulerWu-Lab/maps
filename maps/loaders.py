@@ -1,3 +1,6 @@
+"""
+Loaders provide classes for handling data input from different modalities. Every loader must define the methods load_data and load_metadata, which return polars dataframes containing the data and metadata, respectively. Both the `data` and `metdata` should include ID columns that uniquely define each row of metadata. Note that the `data` dataframe may include multiple rows with the same ID value (e.g., when data rows are single cells and metdata correspond to imaging wells).
+"""
 import os
 import re
 import glob
@@ -5,21 +8,8 @@ import json
 import pandas as pd
 import polars as pl    
 
-def clean_marker_names(df, dfmeta):
-    "Replace marker IDs in data columns with antibody names"
-    antibodies = dfmeta["Antibody"].str.split("/").explode().unique()
-    channels = dfmeta["Channel"].str.split("/").explode().unique()
+from maps.loader_utils import get_plate_id
 
-    for channel, antibody in zip(channels, antibodies):
-        df.columns = df.columns.str.replace(channel, antibody)
-        
-    return df
-
-
-def get_plate_id(plate_dir):
-    "Extract plate ID from plate directory name"
-    return re.sub(r"__.*$", "", os.path.basename(plate_dir))
-    
     
 class OperettaLoader():
     def __init__(self, params):
@@ -31,9 +21,10 @@ class OperettaLoader():
     def __set_project_dir__(self):
         "Initialize path to screen data directory"
         root = self.params.get("root")
-        root = "/home/kkumbier/als" if root is None else root
+        root = "/home/kkumbier/als/data/Experiments" if root is None else root
+        
         screen = self.params.get("screen")    
-        project_dir = os.path.join(root, "data", "Experiments", screen)
+        project_dir = os.path.join(root, screen)
 
         if not os.path.isdir(project_dir):
             raise FileExistsError
@@ -41,13 +32,14 @@ class OperettaLoader():
         self.project_dir = project_dir
    
     
-    def get_plate_dirs(self):
+    def _get_plate_dirs(self):
         "Traverse project directory to find subdirectories for each plate"
         plates = [p for p in glob.glob(f"{self.data_dir}/**")]
-        return [p for p in plates if "Evaluation1" in os.listdir(p)]
+        eval_dir = self.params.get("eval_dir", "Evaluation1")
+        return [p for p in plates if eval_dir in os.listdir(p)]
    
         
-    def get_data_file(self, plate_dir):
+    def _get_data_file(self, plate_dir):
         "Set paths to data file for a given plate"
         fname = self.params.get(
             "data_file", "Objects_Population - Nuclei Selected.txt"
@@ -78,7 +70,8 @@ class OperettaLoader():
         
         df = df.with_columns(
             pl.col("Column").cast(pl.String),
-            pl.col("PlateID").cast(pl.String)    
+            pl.col("PlateID").cast(pl.String),
+            pl.col("Channel").cast(pl.String)    
         )
             
         df = df.with_columns(
@@ -88,9 +81,9 @@ class OperettaLoader():
         return df   
    
     
-    def load_data_(self, plate_dir):
+    def _load_data(self, plate_dir):
         "Load in data for selected plate"
-        data_file = self.get_data_file(plate_dir)
+        data_file = self._get_data_file(plate_dir)
         
         # Get starting line of data
         with open(data_file, 'r') as file:
@@ -130,8 +123,6 @@ class OperettaLoader():
         ) 
        
         df = df.drop(["Object_No_in_Nuclei", "Row", "Column", "PlateID"])
-        #df = df.rename({"Object_No_in_Nuclei": "CellID"}) 
-            
         return df
 
 
@@ -140,10 +131,10 @@ class OperettaLoader():
         
         # Load platemaps for selected plates
         if plate_ids is None:
-            plates = self.get_plate_dirs() 
+            plates = self._get_plate_dirs() 
         else:
             id_re = "|".join(plate_ids)
-            plates = [p for p in self.get_plate_dirs() if re.search(id_re, p)]
+            plates = [p for p in self._get_plate_dirs() if re.search(id_re, p)]
             
         dfmeta = [self.load_metadata(p) for p in plates]
         dfmeta = pl.concat(dfmeta)
@@ -159,7 +150,7 @@ class OperettaLoader():
         plates = [p for p in plates if re.search(id_re, p)]
         
         # Load data
-        df = [self.load_data_(p) for p in plates]
+        df = [self._load_data(p) for p in plates]
         df = pl.concat(df)
 
         # Count number of cells per well
@@ -173,10 +164,10 @@ class OperettaLoader():
         
         # Load platemaps for selected plates
         if plate_ids is None:
-            plates = self.get_plate_dirs() 
+            plates = self._get_plate_dirs() 
         else:
             id_re = "|".join(plate_ids)
-            plates = [p for p in self.get_plate_dirs() if re.search(id_re, p)]
+            plates = [p for p in self._get_plate_dirs() if re.search(id_re, p)]
             
         dfmeta = [self.load_metadata(p) for p in plates]
         dfmeta = pl.concat(dfmeta)

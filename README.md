@@ -2,16 +2,13 @@
 This vignette outlines basic setup and usage for the molecular als phenotype scores (MAPs) pipeline described in Kumbier et al. 2024. Currently, the pipeline supports imaging-based phenotype analysis. However, the pipeline design is fairly modular and can be readily extended to incorporate new data modalities.
 
 ## Installation
-`maps` can be installed directly from this repository using the steps below. A Python virtual environment (venv) creates a self-contained environment that isolates any changes from system level configuration. It is highly recommended that you install `maps` within a virtual environment to avoid any unexpected dependency or version issue.
+`maps` can be installed directly from this repository using the steps below. A Python virtual environment (venv) creates a self-contained environment that isolates any changes from system level configuration. It is highly recommended that you install `maps` within a virtual environment to avoid any unexpected dependency or version issue. The package was developed and tested using `python3.12`.
 
 ```
-git clone git@github.com:karlkumbier/maps.git
-cd maps
-
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 
-pip install maps
+pip install git+https://github.com/AltschulerWu-Lab/maps.git
 ```
 
 ### Analysis `params`
@@ -27,7 +24,6 @@ To help ensure reproducibility, the `maps` pipeline is organized around paramete
 
 **Additional analysis params**
 - `preprocess`: dict specifying all preprocessing functions to be performed. The entries of this dict should be key-value pairs, keys indicating the name of preprocessing function to be performed (see `maps.preprocess`) and values a dict of kwargs for that function.
-- `eda`: dict specifying exploratory data analysis figures to be generated. The entries of this dict should be key-value pairs, keys indicating the name of eda function to be performed (see `maps.eda`) and values a dict of kwargs for that function. 
 - `analysis`: dict specifying all analyses to be performed. The entries of this dict should be key-value pairs, keys indicating the name of the analysis to be performed (see `maps.analyses`) and values a dict of kwargs for that analysis.
 
 
@@ -43,7 +39,7 @@ print(json.dumps(params, indent=4))
 
     {
         "name": "vignette_example",
-        "root": "/home/kkumbier/als",
+        "root": "/awlab/projects/2024_ALS/Experiments",
         "screen": "20250216_AWALS37_Full_screen_n96",
         "eval_dir": "Evaluation1",
         "data_file": "Objects_Population - Nuclei Selected.txt",
@@ -84,16 +80,12 @@ print(json.dumps(params, indent=4))
             },
             "MAP": {
                 "model": {
-                    "Delearner": {
-                        "epochs": 5,
-                        "batch_size": 100,
-                        "verbose": 1
+                    "BinaryLogistic": {
+                        "tol": 0.01,
+                        "solver": "saga"
                     }
                 },
-                "response": [
-                    "Mutations",
-                    "NCells"
-                ],
+                "response": "Mutations",
                 "fitter": "sample_split"
             }
         }
@@ -118,11 +110,6 @@ print(screen.metadata.head())
 
 screen.preprocess()
 ```
-
-    WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-    E0000 00:00:1741136988.492636 2476012 cuda_dnn.cc:8310] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
-    E0000 00:00:1741136988.531747 2476012 cuda_blas.cc:1418] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-
 
     shape: (5, 4_763)
     ┌───────────┬───────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬──────────┐
@@ -168,15 +155,21 @@ Functions for generating common EDA / quality control figures are defined in `ma
 
 
 ```python
-from maps.eda import plot_cell_count
+from maps.figures import plot_cell_count, PALETTE
 
-plt = plot_cell_count(screen)
-plt.show()
+fig = plot_cell_count(
+    screen, 
+    sharex=False, 
+    height=4, 
+    aspect=1.2
+)
+
+fig.show()
 ```
 
 
     
-![png](readme_files/readme_6_1.png)
+![png](README_files/README_6_0.png)
     
 
 
@@ -186,12 +179,18 @@ In the figure above, we notice C9014 has an unusually low cell count. We can dro
 ```python
 screen = drop_sample_by_feature(screen, drop_key=[{"CellLines": ["C9014"]}])
 
-plt = plot_cell_count(screen)
-plt.show()
+fig = plot_cell_count(
+    screen, 
+    sharex=False, 
+    height=4, 
+    aspect=1.2
+)
+fig.show()
 ```
 
+
     
-![png](readme_files/readme_8_1.png)
+![png](README_files/README_8_0.png)
     
 
 
@@ -199,17 +198,20 @@ Functions for running and visualizing PCA results are also available in `maps.ed
 
 
 ```python
-from maps.eda import pca, plot_pca
+from maps.analyses import PCA
+from maps.figures import plot_pca, PALETTE
 
-pca_df = pca(screen)
-plt = plot_pca(pca_df, screen)
-plt.show()
+pca = PCA(screen)
+pca.fit()
+
+fig = plot_pca(pca, palette=PALETTE)
+fig.show()
 
 ```
 
 
     
-![png](readme_files/readme_10_0.png)
+![png](README_files/README_10_0.png)
     
 
 
@@ -229,53 +231,25 @@ Both models and fitters should be defined in `params`. In this example, we use t
 ```python
 from maps.fitters import *
 from maps.analyses import MAP
-from maps.models import Delearner
-plt = plot_cell_count(screen)
-plt.show()
+from maps.figures import plot_grouped
 
 map_analysis = MAP(screen)
 map_analysis.fit()
 
-plt = map_analysis.make_fig()
-plt.show()
+fig = plot_grouped(
+    map_analysis.fitted["predicted"], 
+    y="Ypred", 
+    x="CellLines", 
+    hue="Mutations",
+    palette=PALETTE
+)
+
+fig.set_size_inches(8, 5)
+fig.show()
 ```
 
-    W0000 00:00:1741138914.711317 2476012 gpu_device.cc:2344] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
-    Skipping registering GPU devices...
-
-
-    Epoch 1/5
-    [1m306/306[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m3s[0m 4ms/step - delearning_head_cor: -8.2503e-09 - delearning_head_loss: 99.8670 - learning_head_accuracy: 0.6433 - learning_head_loss: 0.6385 - loss: 1.6372
-    Epoch 2/5
-    [1m306/306[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: -2.6494e-08 - delearning_head_loss: 99.4798 - learning_head_accuracy: 0.6993 - learning_head_loss: 0.5678 - loss: 1.5626
-    Epoch 3/5
-    [1m306/306[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: 1.9413e-08 - delearning_head_loss: 99.2966 - learning_head_accuracy: 0.7044 - learning_head_loss: 0.5567 - loss: 1.5497
-    Epoch 4/5
-    [1m306/306[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: 1.1955e-08 - delearning_head_loss: 99.1740 - learning_head_accuracy: 0.7078 - learning_head_loss: 0.5556 - loss: 1.5473
-    Epoch 5/5
-    [1m306/306[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: -1.7311e-08 - delearning_head_loss: 98.9936 - learning_head_accuracy: 0.7154 - learning_head_loss: 0.5471 - loss: 1.5370
-    Epoch 1/5
-    [1m283/283[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m3s[0m 4ms/step - delearning_head_cor: -2.1980e-08 - delearning_head_loss: 99.9171 - learning_head_accuracy: 0.6024 - learning_head_loss: 0.6580 - loss: 1.6572
-    Epoch 2/5
-    [1m283/283[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: -2.6670e-08 - delearning_head_loss: 99.5816 - learning_head_accuracy: 0.6630 - learning_head_loss: 0.6093 - loss: 1.6051
-    Epoch 3/5
-    [1m283/283[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: -1.6936e-08 - delearning_head_loss: 99.4527 - learning_head_accuracy: 0.6687 - learning_head_loss: 0.6027 - loss: 1.5973
-    Epoch 4/5
-    [1m283/283[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: -2.5497e-08 - delearning_head_loss: 99.2776 - learning_head_accuracy: 0.6829 - learning_head_loss: 0.5903 - loss: 1.5831
-    Epoch 5/5
-    [1m283/283[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - delearning_head_cor: 8.3160e-09 - delearning_head_loss: 99.1399 - learning_head_accuracy: 0.6926 - learning_head_loss: 0.5781 - loss: 1.5695
-    [1m884/884[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 1ms/step
-    [1m956/956[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 1ms/step
-    [1m20/20[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 2ms/step 
-    [1m20/20[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 2ms/step 
-    [1m20/20[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 2ms/step 
-    [1m20/20[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 2ms/step 
-
-
-
-    ---------------------------------------------------------------------------
 
     
-![png](readme_files/readme_13_0.png)
+![png](README_files/README_12_0.png)
     
 

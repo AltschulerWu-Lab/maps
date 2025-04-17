@@ -1,4 +1,11 @@
 """ Fitter functions are used to run classification pipelines used for MAP-scoring analysis. Fitters define data splits, how model(s) should be trained relative to these sample splits, how predictions should be generated relative to these splits.
+
+All fitter functions operate on a `Screen` and `BaseModel` object. Some fitter functions additionally specify holdout cell lines—i.e., those that should be removed during training and only evaluated as model predictions.
+
+Fitters return dictionaries containing the following keys: `fitted`: list of fitted models, `predicted`: DataFrame of predictions, `importance`: DataFrame of feature importances
+    
+`*_mut` fitters are wrappers that run an analysis for each mutational 
+background. As a result, they return one dict per mutational background.
 """
 
 import polars as pl
@@ -7,33 +14,37 @@ import pandas as pd
 from typing import Dict
 from maps.models import BaseModel
 from maps.processing import select_sample_by_feature
+from maps.fitter_utils import cellline_split
 from typing import TYPE_CHECKING, List
+import copy
 
 if TYPE_CHECKING:
     from maps.screens import ScreenBase
 
-def leave_one_out_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
-    """ Wapper for running leave_one_out fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
+
+def leave_one_out_mut(
+    screen: 'ScreenBase', model: BaseModel) -> Dict:
+    """ Wapper for running `leave_one_out` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
     """
     
     mutations = screen.metadata["Mutations"].unique()
-    mutations = list(set(mutations) - set(["WT", "sporadic"]))
+    mutations = set(mutations) - set(["WT", "sporadic"])
     out = {}
     
     for m in mutations:
-        print(f"Training {m}...")
-        select_key = [{"Mutations": ["WT", "sporadic", m]} ]
-        screen_m = select_sample_by_feature(screen, select_key=select_key)
+        print(f"Training {m}...") 
         
         # Set sALS cell lines as holdouts
-        holdout = screen_m.metadata.filter(pl.col("Mutations") == "sporadic") \
+        mutations_holdout = list(mutations - {m}) + ["sporadic"]
+        
+        holdout = screen.metadata \
+            .filter(pl.col("Mutations").is_in(mutations_holdout)) \
             .select("CellLines") \
             .to_series() \
             .to_list()
             
-        out[m] = leave_one_out(screen_m, model, holdout)
-        
-        
+        out[m] = leave_one_out(screen, model, holdout)
+         
     return out
 
 def leave_one_out(
@@ -53,7 +64,7 @@ def leave_one_out(
         .to_list()
     
     if holdout is not None:
-        cell_lines = [cl for cl in cell_lines if cl not in holdout]
+        cell_lines = set(cell_lines) - set(holdout)
     
     fitted = []
     predicted = []
@@ -92,7 +103,7 @@ def leave_one_out(
 
     
 def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
-    """ Wapper for running sample_split fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
+    """ Wapper for running `sample_split` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
     """
     
     mutations = screen.metadata["Mutations"].unique()
@@ -107,7 +118,7 @@ def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
         select_key = [{"Mutations": ["WT", "sporadic", m]} ]
         screen = select_sample_by_feature(screen, select_key=select_key)
         
-                # Set sALS cell lines as holdouts
+        # Set sALS cell lines as holdouts
         holdout = screen.metadata.filter(pl.col("Mutations") == "sporadic") \
             .select("CellLines") \
             .to_series() \
@@ -130,13 +141,12 @@ def sample_split(
     out = {}
     
     # Define 50/50 sample split by mutation and set sporadics as hold-out
-    split = cellline_split(screen, seed)
+    split = cellline_split(screen, train_prop=0.5, seed=seed)
 
     id_holdout = screen.metadata \
         .filter(pl.col("CellLines").is_in(holdout)) \
         .select("ID") \
-        .to_series() \
-        .to_list()
+        .to_series()
              
     # Initialize data for model fitting
     y = screen.get_response() 
@@ -168,31 +178,3 @@ def sample_split(
     out['importance'] = (imp1 + imp2) / 2
         
     return out
-
-
-def cellline_split(
-    screen: 'ScreenBase', train_prop: float=0.5, seed: int=47) -> Dict:
-    """ Splits cell lines into train / test sets by mutation."""
-        
-    cols = ['CellLines', 'Mutations']
-    key = screen.metadata.select(cols).unique()
-    
-    train = key.to_pandas() \
-        .groupby('Mutations') \
-        .apply(lambda x: 
-            x.sample(
-                frac=train_prop, 
-                random_state=seed), 
-            include_groups=False) \
-        .reset_index(drop=True)
-
-    id_train = screen.metadata.filter(
-        screen.metadata['CellLines'].is_in(train['CellLines'])
-    )
-   
-    id_test = screen.metadata.filter(
-        ~screen.metadata['CellLines'].is_in(train['CellLines'])
-    )
-    
-    # Set train / test indices relative to feature matrix
-    return {'id_train': id_train["ID"], 'id_test': id_test["ID"]}
