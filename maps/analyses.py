@@ -17,11 +17,23 @@ class PCA():
         self.fit()
         self.outputs = {"tables": self.fitted}
         
-    def fit(self):
+    def fit(self, group="ID"):
         "Runs PCA on screen data, aggregated by well"
-        x_well = self.screen.data.group_by("ID").mean()
-        xid = x_well.select("ID")
-        xfeat = x_well.drop("ID")
+        if group == "ID":
+            group, drop = [group], None
+        else:
+            group, drop = ["ID", group], "ID"
+        
+        x_meta = self.screen.metadata.select(group)
+        x_well = x_meta.join(self.screen.data, on="ID", how="inner")
+        
+        if drop is not None:
+            x_well = x_well.drop(drop)
+            group = [g for g in group if g != drop]
+        
+        x_well = x_well.group_by(group).mean()
+        xid = x_well.select(group)
+        xfeat = x_well.drop(group)
 
         # Standardize features
         scaler = StandardScaler()

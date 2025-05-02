@@ -159,18 +159,20 @@ def plot_plate(screen, feature_plot):
     return fig
 
 
-def plot_pca(pca, components=(1,2), hue="Mutations", **kwargs):
+def plot_pca(pca, components=(1,2), hue="Mutations", group="ID", **kwargs):
     "Plots PCA projection for selected components"
     assert(pca.is_fitted)
     
     if components is None:
         components = pca.params.get("components", (1,2))
     
+    meta_plot = pca.screen.metadata.select([group, hue])
+    
     # Merge PCA data with metadata
     pca_df = pca.fitted
     pcs = ["column_{i}".format(i=ii - 1) for ii in components]
-    pca_df = pca_df.select(pcs + ["ID"])
-    pca_df = pca_df.join(pca.screen.metadata, on="ID")
+    pca_df = pca_df.select(pcs + [group])
+    pca_df = pca_df.join(pca.screen.metadata, on=group)
 
     # Plot selected principal components
     fig = plt.figure()

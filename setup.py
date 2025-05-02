@@ -11,7 +11,8 @@ setup(
         'matplotlib', 
         'scikit-learn', 
         'numpy',
-        'imblearn'
+        'imblearn',
+        'statsmodels'
     ],
     include_package_data=True,  # Includes non-code files (if using MANIFEST.in)
     author="Karl Kumbier",

@@ -30,8 +30,8 @@ class BaseModel():
     def get_importance(self, fitted, x):
         return self.model._get_importance(fitted, x)
     
-    
-class BinaryLogistic():
+
+class Logistic():
     """Logistic regression model for binary classification. Additional kwargs as specified in `sklearn.linear_model.LogisticRegression`."""
     def __init__(self, **kwargs):
         self.params = kwargs
@@ -64,9 +64,7 @@ class BinaryLogistic():
         # Preprocess the new data
         idx = x["ID"].is_in(id_test)
         xtest = model["scaler"].transform(x.filter(idx).drop("ID"))
-        ypred = model["model"].predict_proba(xtest)[:,1]
-        
-            
+        ypred = model["model"].predict_proba(xtest)    
         return pl.DataFrame({"ID": x.filter(idx)["ID"], "Ypred": ypred})
 
     def _get_importance(self, model, x: pl.DataFrame):
@@ -77,6 +75,12 @@ class BinaryLogistic():
         importance = importance.sort_values(ascending=False)
         
         return importance
+    
+        
+class BinaryLogistic(Logistic):
+    """Logistic regression model for binary classification. Additional kwargs as specified in `sklearn.linear_model.LogisticRegression`."""
+    def _predict(self, model, x: pl.DataFrame, id_test: pl.Series):
+        return super()._predict(model, x, id_test)[:,1]
 
     
 class RandomForest():
@@ -85,8 +89,6 @@ class RandomForest():
         self.params = kwargs
 
     def _fit(self, x: pl.DataFrame, y: List, id_train: pl.Series):
-        
-        self.params["binary"] = len(np.unique(y)) == 2
         
         # Convert Polars DataFrame to NumPy array
         idx = x["ID"].is_in(id_train)
@@ -109,10 +111,6 @@ class RandomForest():
         idx = x["ID"].is_in(id_test)
         xtest = x.filter(idx).drop("ID")
         ypred = model["model"].predict(xtest)
-        
-        if self.params["binary"]:
-            ypred = ypred[:,1]
-            
         return pl.DataFrame({"ID": x.filter(idx)["ID"], "Ypred": ypred})
     
     def _get_importance(self, model, x: pl.DataFrame):
@@ -122,3 +120,10 @@ class RandomForest():
             index=x.drop("ID").columns
         ).sort_values(ascending=False)
         return importance
+
+        
+class BinaryRandomForest(RandomForest):
+    """Logistic regression model for binary classification. Additional kwargs as specified in `sklearn.linear_model.LogisticRegression`."""
+    def _predict(self, model, x: pl.DataFrame, id_test: pl.Series):
+        return super()._predict(model, x, id_test)[:,1]
+
