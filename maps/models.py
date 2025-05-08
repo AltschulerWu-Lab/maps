@@ -58,14 +58,20 @@ class Logistic():
         model.fit(xtrain, ytrain)
         return {"model": model, "scaler": scaler}
 
-
-    def _predict(self, model, x: pl.DataFrame, id_test: pl.Series):
-       
+    def _predict(self, model, x: pl.DataFrame, id_test: pl.Series): 
         # Preprocess the new data
         idx = x["ID"].is_in(id_test)
         xtest = model["scaler"].transform(x.filter(idx).drop("ID"))
-        ypred = model["model"].predict_proba(xtest)    
-        return pl.DataFrame({"ID": x.filter(idx)["ID"], "Ypred": ypred})
+        ypred = model["model"].predict_proba(xtest)
+        
+        # Create a dictionary with ID column
+        result_dict = {"ID": x.filter(idx)["ID"]}
+    
+        # Add a column for each class probability
+        for i in range(ypred.shape[1]):
+            result_dict[f"Ypred{i}"] = ypred[:, i] 
+            
+        return pl.DataFrame(result_dict)
 
     def _get_importance(self, model, x: pl.DataFrame):
         # Extract feature importance from the model
@@ -80,7 +86,11 @@ class Logistic():
 class BinaryLogistic(Logistic):
     """Logistic regression model for binary classification. Additional kwargs as specified in `sklearn.linear_model.LogisticRegression`."""
     def _predict(self, model, x: pl.DataFrame, id_test: pl.Series):
-        return super()._predict(model, x, id_test)[:,1]
+        result_df = super()._predict(model, x, id_test)
+        
+        # Note: some previous runs had used Y0 instead!
+        result_df = result_df.select(["ID", "Ypred1"])
+        return result_df.rename({"Ypred2": "Ypred"})
 
     
 class RandomForest():
