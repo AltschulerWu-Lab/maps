@@ -6,7 +6,8 @@ import re
 import glob
 import json
 import pandas as pd
-import polars as pl    
+import polars as pl   
+from pathlib import Path 
 
 from maps.loader_utils import get_plate_id
 
@@ -15,28 +16,46 @@ class OperettaLoader():
     def __init__(self, params):
         self.params = params
         self.__set_project_dir__()
-        self.data_dir = os.path.join(self.project_dir, "Data")
-        self.platemap_dir = os.path.join(self.project_dir, "PlateMap")  
+        #self.data_dir = os.path.join(self.project_dir, "Data")
+        #self.platemap_dir = os.path.join(self.project_dir, "PlateMap")  
    
     def __set_project_dir__(self):
         "Initialize path to screen data directory"
         root = self.params.get("root")
         root = "/home/kkumbier/als/data/Experiments" if root is None else root
         
-        screen = self.params.get("screen")    
-        project_dir = os.path.join(root, screen)
-
-        if not os.path.isdir(project_dir):
-            raise FileExistsError
+        screen = self.params.get("screen")
+        if type(screen) is not list:
+            screen = [screen]
+        
+        project_dir = []
+        for s in screen:
+                
+            screen_dir = Path(root, s)
+            
+            if not os.path.isdir(screen_dir):
+                raise FileExistsError(f"{screen_dir} does not exist")
+            
+            project_dir.append(screen_dir)
+            
         
         self.project_dir = project_dir
    
     
     def _get_plate_dirs(self):
-        "Traverse project directory to find subdirectories for each plate"
-        plates = [p for p in glob.glob(f"{self.data_dir}/**")]
-        eval_dir = self.params.get("eval_dir", "Evaluation1")
-        return [p for p in plates if eval_dir in os.listdir(p)]
+        """Traverse project directory to find subdirectories for each plate. Return value will be a dict with screen_id as key and plate list as values
+        """
+        
+        plate_dirs = []
+        
+        for screen in self.project_dir:
+            data_dir = os.path.join(screen, "Data") 
+            plates = [p for p in glob.glob(f"{data_dir}/**")]
+            eval_dir = self.params.get("eval_dir", "Evaluation1")
+            plates = [p for p in plates if eval_dir in os.listdir(p)]
+            plate_dirs = plate_dirs + plates
+            
+        return plate_dirs
    
         
     def _get_data_file(self, plate_dir):
@@ -51,8 +70,19 @@ class OperettaLoader():
        
     def load_metadata(self, plate_dir):
         "Load in metadata for selected plate"
-        plate_id = get_plate_id(plate_dir)        
-        pm_file = os.path.join(self.platemap_dir, f"platemap_{plate_id}.csv") 
+        # Set platemap ath based on data path
+        path_parts = Path(plate_dir).parts
+        data_idx = path_parts.index("Data") if "Data" in path_parts else -1
+
+        if data_idx != -1:
+            parent_path = Path(*path_parts[:data_idx])
+            platemap_dir = parent_path / "PlateMap"
+    
+        else:
+            raise Exception("Data directory not found in path")
+        
+        plate_id = get_plate_id(plate_dir)       
+        pm_file = os.path.join(platemap_dir, f"platemap_{plate_id}.csv") 
         df = pl.read_csv(pm_file)
        
         # Standardize column names
@@ -126,16 +156,11 @@ class OperettaLoader():
         return df
 
 
-    def load_data(self, plate_ids=None, antibody=None):
+    def load_data(self, antibody=None):
         "Wrapper function to load data/metadata and clean antibody names"
         
         # Load platemaps for selected plates
-        if plate_ids is None:
-            plates = self._get_plate_dirs() 
-        else:
-            id_re = "|".join(plate_ids)
-            plates = [p for p in self._get_plate_dirs() if re.search(id_re, p)]
-            
+        plates = self._get_plate_dirs() 
         dfmeta = [self.load_metadata(p) for p in plates]
         dfmeta = pl.concat(dfmeta)
         
@@ -177,7 +202,8 @@ class OperettaLoader():
 
 if __name__ == "__main__":
 
-    with open("/home/kkumbier/als/scripts/python/params.json", "r") as f:
+    pdir = "/home/kkumbier/als/scripts/maps/template_analyses/params/"
+    with open(pdir + "params.json", "r") as f:
         params = json.load(f)
         
     self = OperettaLoader(params)
