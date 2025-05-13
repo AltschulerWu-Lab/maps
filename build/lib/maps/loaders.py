@@ -162,7 +162,7 @@ class OperettaLoader():
         # Load platemaps for selected plates
         plates = self._get_plate_dirs() 
         dfmeta = [self.load_metadata(p) for p in plates]
-        dfmeta = pl.concat(dfmeta)
+        dfmeta = pl.concat(dfmeta, how="diagonal_relaxed")
         
         # Filter to selected antibodies
         antibody = antibody if type(antibody) is list else [antibody]
@@ -176,7 +176,7 @@ class OperettaLoader():
         
         # Load data
         df = [self._load_data(p) for p in plates]
-        df = pl.concat(df)
+        df = pl.concat(df, how="diagonal_relaxed")
 
         # Count number of cells per well
         df_group = df.group_by("ID").len().rename({"len": "NCells"})
