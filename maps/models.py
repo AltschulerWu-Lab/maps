@@ -39,6 +39,11 @@ class Logistic():
     def _fit(self, x: pl.DataFrame, y: List, id_train: pl.Series):
    
         # Convert Polars DataFrame to NumPy array
+        print(f"id_train type: {type(id_train)}")
+        print(f"xid type: {type(x["ID"])}")
+        print(x["ID"].head())
+        print(id_train.head())
+        
         idx = x["ID"].is_in(id_train)
         xtrain = x.filter(idx)
         ytrain = y[0][idx]
