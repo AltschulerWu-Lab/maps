@@ -79,11 +79,13 @@ def leave_one_out(
         # Create train and test indices
         id_train = screen.metadata \
             .filter(~pl.col("CellLines").is_in(cell_lines_test)) \
-            .select("ID")
+            .select("ID") \
+            .to_series()
             
         id_test = screen.metadata \
             .filter(pl.col("CellLines").is_in(cell_lines_test)) \
-            .select("ID")
+            .select("ID") \
+            .to_series()
         
         # Fit model and make predictions
         fitted_cl = model.fit(x=x, y=y, id_train=id_train)
