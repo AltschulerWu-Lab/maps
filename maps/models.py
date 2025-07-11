@@ -95,7 +95,7 @@ class BinaryLogistic(Logistic):
         
         # Note: some previous runs had used Y0 instead!
         result_df = result_df.select(["ID", "Ypred1"])
-        return result_df.rename({"Ypred2": "Ypred"})
+        return result_df.rename({"Ypred1": "Ypred"})
 
     
 class RandomForest():
