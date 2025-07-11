@@ -87,6 +87,9 @@ def leave_one_out(
             .select("ID") \
             .to_series()
         
+        print("Updated train and test IDs for cell line:", cl)
+        print(f"ID train type: {type(id_train)}, ID test type: {type(id_test)}")
+        
         # Fit model and make predictions
         fitted_cl = model.fit(x=x, y=y, id_train=id_train)
         predicted_cl = model.predict(fitted_cl, x=x, id_test=id_test)
