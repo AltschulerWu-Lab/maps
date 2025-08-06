@@ -16,8 +16,6 @@ class OperettaLoader():
     def __init__(self, params):
         self.params = params
         self.__set_project_dir__()
-        #self.data_dir = os.path.join(self.project_dir, "Data")
-        #self.platemap_dir = os.path.join(self.project_dir, "PlateMap")  
    
     def __set_project_dir__(self):
         "Initialize path to screen data directory"
