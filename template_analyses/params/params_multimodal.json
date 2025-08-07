@@ -1,7 +1,7 @@
 {
     "name": "maps_dmso", 
     "screen": [
-        "20250216_AWALS37_Full_screen_n96",
+        "20250216_AWALS37_Full_screen_n96"
     ],
     "root": "/awlab/projects/2024_ALS/Experiments",
     "data_file": "Objects_Population - Nuclei Selected.txt",
@@ -18,27 +18,14 @@
                 {"Drugs": ["DMSO"]}
             ]
         },
-        "drop_cells_by_feature_qt": {
-            "feature_filters": {
-                "Nucleus_Region_Area_[µm²]": 0.05,
-                "Cell_Region_Area_[µm²]": 0.05
-            }
-        },
         "select_feature_types": {
             "feature_str": "^.*Intensity.*$"
         },
-        "drop_feature_types": {
-            "feature_str": "^.*HOECHST.*$|^.*546.*$"
-        },
         "drop_constant_features":{},
-        "pca_transform": {
-            "alpha": 0.95,
-            "groups":["488", "647"]
-        },
-        "subsample_rows_by_id": {
-            "n": 100,
-            "seed": 47
+        "group_markers": {
+            "groups":["488", "647", "546", "HOECHST"]
         }
+
     },
     "analysis": {
         "MAP": {

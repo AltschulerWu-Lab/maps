@@ -63,7 +63,7 @@ class ScreenBase():
         pass
     
     def run_analysis(self):
-        "Run analysis modules as specified in the analysis key of screen params."
+        "Run analysis modules specified in the analysis key of screen params."
         analyses = {}
         for analysis in self.params.get("analysis"):
             analyses[analysis] = eval(analysis)(self)
@@ -85,15 +85,95 @@ class ImageScreen(ScreenBase):
         dfmeta, df = self.loader.load_data(antibody=antibody)
         self.data = df
         self.metadata = dfmeta
+
+
+class ImageScreenMultimodal(ScreenBase):
+    "Screen class for multimodal data"
+    def __init__(self, params):
+        super().__init__(params, OperettaLoader)
+        self.data = None
+        self.metadata = None
+        self.preprocessed = False
         
+    def load(self, antibody=None):
+        "Load data for selected antibodies and group by antibody"
+        if antibody is None:
+            antibody = self.params.get("antibody")
+        assert antibody is not None, "Antibody must be specified"
+
+        dfmeta, df = self.loader.load_data(antibody=antibody)
+
+        # Group by antibody
+        self.data = {}
+        self.metadata = {}
+        antibodies = dfmeta["Antibody"].unique()
+        
+        for ab in antibodies:
+            self.metadata[ab] = dfmeta.filter(pl.col("Antibody") == ab)
+            self.data[ab] = df.filter(pl.col("ID").is_in(self.metadata[ab]["ID"]))
+
+    def preprocess(self):
+        "Run preprocessing steps for each multimodal dataset"
+        assert self.data is not None
+        assert self.metadata is not None
+        
+        df_multimodal = self.data.copy()
+        dfmeta_multimodal = self.metadata.copy()
+        
+        for ab in df_multimodal:
+            self.data, self.metadata = df_multimodal[ab], dfmeta_multimodal[ab]
+    
+            for f, v in self.params.get("preprocess").items():
+                self = self._run(f, v)
+            
+            df_multimodal[ab], dfmeta_multimodal[ab] = self.data, self.metadata
+            
+        self.data = df_multimodal
+        self.metadata = dfmeta_multimodal
+        self.preprocessed = True
+        
+    def get_response(self, encode_categorical=True):
+        "Generate vector of response values as specified by analysis.MAP.response key of screen params."    
+        
+        # Load response vectors as indicated in params
+        assert(self.data is not None)
+        assert(self.metadata is not None) 
+        
+        response = self.params.get("analysis").get("MAP").get("response")
+        assert response is not None, "Response must be specified in params"
+        response = [response] if type(response) is not list else response
+   
+        y = {}
+        for k in self.data: 
+            yy = self.metadata[k].select(response + ["ID"])
+            yy = self.data[k].select("ID").join(yy, on="ID").select(response)
+            y[k] = [yy[col].to_numpy() for col in yy.columns]
+        
+        # Check that each response array contains the same set of values
+        value_sets = [set(np.concatenate(arr)) for arr in y.values()]
+        first_set = value_sets[0]
+        for _, s in enumerate(value_sets[1:], start=1):
+            assert s == first_set, "Screens contain different genetics"
+        
+        # Encode y classes as numeric
+        if encode_categorical:
+            for k in y:
+                y[k] = [categorize(yy) for yy in y[k]]
+            
+        return y
 
 if __name__ == "__main__":
     import json    
     
-    with open("/home/kkumbier/als/scripts/python/params.json", "r") as f:
+    pdir = "/home/kkumbier/als/scripts/maps/template_analyses/params/"
+    with open(pdir + "params_multimodal.json", "r") as f:
         params = json.load(f)
  
     screen = ImageScreen(params)
-    screen.load()
+    screen.load(antibody="COX IV/Galectin3/atubulin")
     screen.preprocess()
     screen.run_analysis()
+    
+    mscreen = ImageScreenMultimodal(params)
+    mscreen.load(antibody=["FUS/EEA1", "COX IV/Galectin3/atubulin"])
+    mscreen.preprocess()

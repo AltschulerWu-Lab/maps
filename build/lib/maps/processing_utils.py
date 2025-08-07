@@ -69,3 +69,22 @@ def pca_by_group(df: pl.DataFrame, groups: List, alpha: float=0.95):
     
     return pl.concat(result, how="horizontal")
 
+def group_features_by_marker(df: pl.DataFrame, groups: List):
+    """Format features with marker names for downstream grouping in models."""
+    result = []
+    
+    for group in groups:
+        # Select columns matching the group by regex
+        group_columns = [col for col in df.columns if re.search(group, col)]
+        
+        if group_columns:
+            group_df = df.select(group_columns)
+            group_df = group_df.rename({
+                col:f"{group}_{col}" for col in group_df.columns
+            })
+            result.append(group_df)
+
+    # Add the ID column to the concatenated result
+    result.append(df.select("ID"))
+    
+    return pl.concat(result, how="horizontal")
