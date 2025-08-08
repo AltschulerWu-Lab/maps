@@ -137,22 +137,28 @@ class ImageScreenMultimodal(ScreenBase):
         
         # Load response vectors as indicated in params
         assert(self.data is not None)
-        assert(self.metadata is not None)
-        
-        assert(
-            self.params.get("analysis").get("MAP").get("response") is not None
-        )
+        assert(self.metadata is not None) 
         
         response = self.params.get("analysis").get("MAP").get("response")
+        assert response is not None, "Response must be specified in params"
         response = [response] if type(response) is not list else response
-    
-        y = self.metadata.select(response + ["ID"])
-        y = self.data.select("ID").join(y, on="ID").select(response)
-        y = [y[col].to_numpy() for col in y.columns]
-            
+   
+        y = {}
+        for k in self.data: 
+            yy = self.metadata[k].select(response + ["ID"])
+            yy = self.data[k].select("ID").join(yy, on="ID").select(response)
+            y[k] = [yy[col].to_numpy() for col in yy.columns]
+        
+        # Check that each response array contains the same set of values
+        value_sets = [set(np.concatenate(arr)) for arr in y.values()]
+        first_set = value_sets[0]
+        for _, s in enumerate(value_sets[1:], start=1):
+            assert s == first_set, "Screens contain different genetics"
+        
         # Encode y classes as numeric
         if encode_categorical:
-            y = [categorize(yy) for yy in y]
+            for k in y:
+                y[k] = [categorize(yy) for yy in y[k]]
             
         return y
 
