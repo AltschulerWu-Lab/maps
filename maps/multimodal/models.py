@@ -5,10 +5,13 @@ import torch.nn.functional as F
 class AntibodyEncoder(nn.Module):
     def __init__(self, in_features, d_model, n_layers):
         super().__init__()
-        #self.batch_norm = nn.BatchNorm1d(in_features)
+        self.batch_norm = nn.BatchNorm1d(in_features)
         layers = []
         for _ in range(n_layers):
-            layers.append(nn.Linear(in_features if len(layers)==0 else d_model, d_model))
+            linear = nn.Linear(in_features if len(layers)==0 else d_model, d_model)
+            nn.init.kaiming_normal_(linear.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.zeros_(linear.bias)
+            layers.append(linear)
             layers.append(nn.ReLU())
         self.encoder = nn.Sequential(*layers)
 
@@ -16,7 +19,7 @@ class AntibodyEncoder(nn.Module):
         # x: (batch, cells, features)
         b, c, f = x.shape
         x = x.view(-1, f)  # (batch*cells, features)
-        #x = self.batch_norm(x)
+        x = self.batch_norm(x)
         x = x.view(b, c, f)
         x = self.encoder(x)
         return x  # (batch, cells, d_model)
@@ -25,6 +28,9 @@ class CellClassifierHead(nn.Module):
     def __init__(self, d_model, n_classes):
         super().__init__()
         self.fc = nn.Linear(d_model, n_classes)
+        # Initialize for classification head
+        nn.init.kaiming_normal_(self.fc.weight, mode='fan_in', nonlinearity='linear')
+        nn.init.zeros_(self.fc.bias)
 
     def forward(self, x):
         # x: (batch, cells, d_model)
@@ -60,6 +66,9 @@ class CellLineClassifierHead(nn.Module):
     def __init__(self, in_features, n_classes):
         super().__init__()
         self.fc = nn.Linear(in_features, n_classes)
+        # Initialize for classification head
+        nn.init.kaiming_normal_(self.fc.weight, mode='fan_in', nonlinearity='linear')
+        nn.init.zeros_(self.fc.bias)
 
     def forward(self, x):
         # x: (batch, d_model * n_antibodies)

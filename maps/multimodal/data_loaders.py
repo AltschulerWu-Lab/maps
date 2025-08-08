@@ -7,6 +7,9 @@ separate tensors for each antibody as dictionaries rather than combining
 all antibodies into a single tensor.
 """
 
+# TODO: cell lines are comparable between biomarkers, but that drops class balance - move class balancing to data loader
+
+
 import numpy as np
 import polars as pl
 import torch
@@ -92,9 +95,10 @@ class AntibodyDataset(Dataset):
         
         # center and scale the data for selected antibody
         if self.normalize:
+            numeric_cols = [c for c in self.data.columns if c != "ID"]
             self.data = self.data.with_columns([
                 ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-6)).alias(c)
-                for c in self.data.columns if c != "ID"
+                for c in numeric_cols
             ])
         
     def _balance_samples(self, metadata: pl.DataFrame) -> pl.DataFrame:
@@ -128,6 +132,8 @@ class AntibodyDataset(Dataset):
         x = self.data.filter(pl.col("ID") == id_select)
 
         # Sample self.n_per_group entries from x (with replacement if needed)
+        # Use deterministic sampling based on idx to ensure consistency
+        #np.random.seed(idx + 42)  # Add constant to avoid seed=0
         n_rows = x.height
         if n_rows >= self.n_per_group:
             idxs = np.random.choice(n_rows, self.n_per_group, replace=False)
@@ -143,17 +149,16 @@ class AntibodyDataset(Dataset):
         """
         Get response label for a specific antibody at a given index.
         """
-        #y = self.metadata["Label"][idx]
-        x, _ = self._get_features(idx)
-        
-        if self.betas is None:
-            self.betas = torch.randn(x.shape[1], dtype=torch.float32)
-        
-        p = torch.sigmoid(x @ self.betas).mean()
-        y = torch.distributions.Binomial(total_count=1, probs=p).sample()
-        
-        
+        y = self.metadata["Label"].to_numpy()[idx]
         return torch.tensor(y, dtype=torch.long)
+        # if self.betas is None:
+        #     self.betas = torch.randn(x.shape[1], dtype=torch.float32)
+        # 
+        # # Use mean of features across cells for deterministic response
+        # x_mean = x.mean(dim=0)  # Average across cells
+        # p = torch.sigmoid(x_mean @ self.betas)
+        # y = (p > 0.5).long()  # Deterministic threshold instead of random sampling
+        # return y
     
         
     def __len__(self):
