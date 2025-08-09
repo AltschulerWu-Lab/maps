@@ -33,11 +33,10 @@ class AntibodyDataset(Dataset):
         data: pl.DataFrame, 
         metadata: pl.DataFrame,
         antibody: str,
-        normalize: bool = True,
         response: str = "Mutations",
         grouping: str = "CellLines", 
         response_map: Optional[Dict[str, int]] = None,
-        n_per_group: int = 10,
+        n_cells: int = 10,
         seed: Optional[int] = None
     ):
         """
@@ -49,7 +48,7 @@ class AntibodyDataset(Dataset):
             antibody: Antibody to use for the dataset
             response: Column name for response variable (default: "Mutations")
             grouping: Column name for grouping variable (default: "cell_lines")
-            n_per_group: Number of samples to sample per group
+            n_cells: Number of samples to sample per group
             seed: Random seed for reproducible sampling
         """
         self.data = data
@@ -57,8 +56,7 @@ class AntibodyDataset(Dataset):
         self.response = response
         self.antibody = antibody
         self.grouping = grouping
-        self.n_per_group = n_per_group
-        self.normalize = normalize
+        self.n_cells = n_cells
         self.response_map = response_map  
         self.betas = None
         
@@ -76,16 +74,16 @@ class AntibodyDataset(Dataset):
         """
         
         # Get unique response values across all antibodies to ensure consistency
-        balanced_meta = self._balance_samples(self.metadata)
+        #balanced_meta = self._balance_samples(self.metadata)
         
         # Map response strings to numeric labels for each antibody
         if self.response_map is None:
-            response_values = balanced_meta[self.response].unique()
+            response_values = self.metadata[self.response].unique()
             self.response_map = {
                 resp: i for i, resp in enumerate(response_values)
             }
         
-        self.metadata = balanced_meta.with_columns(
+        self.metadata = self.metadata.with_columns(
             pl.col(self.response).replace(self.response_map).alias("Label")
         )
         
@@ -94,35 +92,36 @@ class AntibodyDataset(Dataset):
         )
         
         # center and scale the data for selected antibody
-        if self.normalize:
-            numeric_cols = [c for c in self.data.columns if c != "ID"]
-            self.data = self.data.with_columns([
-                ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-6)).alias(c)
-                for c in numeric_cols
-            ])
+        ## TODO: this should be moved to preprocessing
+        #if self.normalize:
+        #    numeric_cols = [c for c in self.data.columns if c != "ID"]
+        #    self.data = self.data.with_columns([
+        #        ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-6)).alias(c)
+        #        for c in numeric_cols
+        #    ])
         
-    def _balance_samples(self, metadata: pl.DataFrame) -> pl.DataFrame:
-        """
-        Up-sample metadata by response category to ensure class balance.
-        """
-        counts = metadata.group_by(self.response).agg(
-            [pl.count("ID").alias("count")])
-        
-        max_count = int(counts["count"].max())
-        balanced_meta = []
-        
-        for resp in counts[self.response].to_list():
-            meta_resp = metadata.filter(pl.col(self.response) == resp)
-            n = meta_resp.height
-            n_to_sample = max_count - n
-            
-            if n_to_sample > 0:
-                idx = np.random.choice(n, n_to_sample, replace=True)
-                upsampled = [meta_resp.slice(i, 1) for i in idx]
-                meta_resp = pl.concat([meta_resp, pl.concat(upsampled)])
+    # def _balance_samples(self, metadata: pl.DataFrame) -> pl.DataFrame:
+    #     """
+    #     Up-sample metadata by response category to ensure class balance.
+    #     """
+    #     counts = metadata.group_by(self.response).agg(
+    #         [pl.count("ID").alias("count")])
+    #     
+    #     max_count = int(counts["count"].max())
+    #     balanced_meta = []
+    #     
+    #     for resp in counts[self.response].to_list():
+    #         meta_resp = metadata.filter(pl.col(self.response) == resp)
+    #         n = meta_resp.height
+    #         n_to_sample = max_count - n
+    #         
+    #         if n_to_sample > 0:
+    #             idx = np.random.choice(n, n_to_sample, replace=True)
+    #             upsampled = [meta_resp.slice(i, 1) for i in idx]
+    #             meta_resp = pl.concat([meta_resp, pl.concat(upsampled)])
 
-            balanced_meta.append(meta_resp)
-        return pl.concat(balanced_meta)
+    #         balanced_meta.append(meta_resp)
+    #     return pl.concat(balanced_meta)
     
     def _get_features(self, idx: int):
         """
@@ -131,14 +130,14 @@ class AntibodyDataset(Dataset):
         id_select = self.metadata["ID"].to_list()[idx]
         x = self.data.filter(pl.col("ID") == id_select)
 
-        # Sample self.n_per_group entries from x (with replacement if needed)
+        # Sample self.n_cells entries from x (with replacement if needed)
         # Use deterministic sampling based on idx to ensure consistency
         #np.random.seed(idx + 42)  # Add constant to avoid seed=0
         n_rows = x.height
-        if n_rows >= self.n_per_group:
-            idxs = np.random.choice(n_rows, self.n_per_group, replace=False)
+        if n_rows >= self.n_cells:
+            idxs = np.random.choice(n_rows, self.n_cells, replace=False)
         else:
-            idxs = np.random.choice(n_rows, self.n_per_group, replace=True)
+            idxs = np.random.choice(n_rows, self.n_cells, replace=True)
         
         x_sampled = pl.concat([x.slice(int(i), 1) for i in idxs]).drop("ID")
         feature_groups = [col.split("_")[0] for col in x_sampled.columns]
@@ -184,32 +183,43 @@ class MultiAntibodyLoader:
         self.keys = list(dataloader_dict.keys())
         
         # Get cell lines for each antibody
-        self.cell_lines_per_ab = {}
+        cell_lines = {}
         for ab in self.keys:
             ds = dataloader_dict[ab].dataset
-            self.cell_lines_per_ab[ab] = set(ds.metadata['CellLines'].to_list())
-        
+            cl_mut_pairs = set(zip(
+                ds.metadata['CellLines'].to_list(), 
+                ds.metadata['Mutations'].to_list()
+            ))
+            cell_lines[ab] = cl_mut_pairs
+       
+
         # Find intersection of cell lines
-        self.common_cell_lines = sorted(
-            set.intersection(*self.cell_lines_per_ab.values())
+        common_cell_lines = sorted(
+            set.intersection(*cell_lines.values())
         )
         
+        # Convert common cell lines to a DataFrame for easier handling
+        self.cell_lines = pl.DataFrame(
+            {"CellLines": [cl[0] for cl in common_cell_lines],
+             "Mutations": [cl[1] for cl in common_cell_lines]}
+        )
+        
+        self.balanced_cell_lines = self._balance_sample() 
         self.batch_size = dataloader_dict[self.keys[0]].batch_size
-        self.num_batches = len(self.common_cell_lines) // self.batch_size
+        self.num_batches = len(self.balanced_cell_lines) // self.batch_size
         self._batch_idx = 0
         self.shuffle = shuffle
-        self._cell_lines_order = self.common_cell_lines.copy()
 
     def __iter__(self):
         self._batch_idx = 0
+        self.balanced_cell_lines = self._balance_sample() 
+        
         # Shuffle cell lines at the start of each epoch if enabled
         if self.shuffle:
-            self._cell_lines_order = self.common_cell_lines.copy()
-            random.shuffle(self._cell_lines_order)
-        else:
-            self._cell_lines_order = self.common_cell_lines.copy()
+            random.shuffle(self.balanced_cell_lines.copy())
+        
         return self
-
+    
     def __len__(self):
         return self.num_batches
     
@@ -221,8 +231,9 @@ class MultiAntibodyLoader:
         # Get cell lines for this batch
         start = self._batch_idx * self.batch_size
         end = start + self.batch_size
-        batch_cell_lines = self._cell_lines_order[start:end]
+        batch_cell_lines = self.balanced_cell_lines[start:end]
         batch = {}
+        
         for ab in self.keys:
             ds = self.dataloader_dict[ab].dataset
             x_list, y_list, feat_group_list = [], [], []
@@ -233,17 +244,44 @@ class MultiAntibodyLoader:
                 x_list.append(x)
                 y_list.append(y)
                 feat_group_list.append(feat_group)
+            
             batch[ab] = (
                 torch.stack(x_list), torch.stack(y_list), feat_group_list[0]
             )
+        
         self._batch_idx += 1
         return batch
+    
+    def _balance_sample(self):
+        """
+        Up-sample cell line table by response category to ensure class balance.
+        """
+        counts = self.cell_lines.group_by("Mutations").agg(
+            [pl.count("CellLines").alias("count")]
+        )
+        
+        max_count = int(counts["count"].max())
+        balanced_cell_lines = []
+        
+        for m in counts["Mutations"].to_list():
+            meta_cl = self.cell_lines.filter(pl.col("Mutations") == m)
+            n = meta_cl.height
+            n_to_sample = max_count - n
+            
+            if n_to_sample > 0:
+                idxs = np.random.choice(n, n_to_sample, replace=True)
+                upsampled = [meta_cl.slice(int(i), 1) for i in idxs]
+                meta_cl = pl.concat([meta_cl, pl.concat(upsampled)])
+
+            balanced_cell_lines.append(meta_cl)
+        
+        return pl.concat(balanced_cell_lines)
 
 def create_multimodal_dataloader(
     screen: ImageScreenMultimodal,
     response: str = "Mutations",
     grouping: str = "CellLines",
-    n_per_group: int = 10,
+    n_cells: int = 10,
     batch_size: int = 8,
     shuffle: bool = True,
     num_workers: int = 0,
@@ -270,7 +308,7 @@ def create_multimodal_dataloader(
             response=response,
             response_map=response_map,
             grouping=grouping,
-            n_per_group=n_per_group,
+            n_cells=n_cells,
             seed=seed
         )
         dataloaders[antibody] = DataLoader(
@@ -298,12 +336,13 @@ if __name__ == "__main__":
     screen.preprocess()
     
     # Create dataset and dataloader
-    dataset = AntibodyDataset(screen, n_per_group=10, antibody="FUS/EEA1")
+    dataset = AntibodyDataset(
+        screen.data, screen.metadata, n_cells=10, antibody="FUS/EEA1"
+    )
+    
     sample = dataset.__getitem__(0)
     
-    dataloader = create_multimodal_dataloader(
-        screen, batch_size=10, n_per_group=10
-    )
+    dataloader = create_multimodal_dataloader(screen)
     
     batch = dataloader.__next__()
     keys = list(batch.keys())

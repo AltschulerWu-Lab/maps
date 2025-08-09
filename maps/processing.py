@@ -219,5 +219,20 @@ def group_markers(x: "ScreenBase", **kwargs) -> "ScreenBase":
     x.data = group_features_by_marker(x.data, groups)
     return x
 
-
-
+def standardize_features(x: "ScreenBase") -> "ScreenBase":
+    """Standardize features by removing mean and scaling to unit variance.
+    
+    Additional kwargs:
+    
+        feature_str (str): regex string to match features on. To select
+        multiple features, separate terms with `|`. Each term must start with 
+        `^` and end with `$`
+    """
+    
+    numeric_cols = [c for c in x.data.columns if c != "ID"]
+    x.data = x.data.with_columns([
+        ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-6)).alias(c)
+        for c in numeric_cols
+    ])
+    
+    return x       

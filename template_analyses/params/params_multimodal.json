@@ -15,7 +15,7 @@
         },
         "select_sample_by_feature": {
             "select_key": [
-                {"Drugs": ["DMSO"]}
+                {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT"]}
             ]
         },
         "select_feature_types": {
@@ -24,7 +24,8 @@
         "drop_constant_features":{},
         "group_markers": {
             "groups":["488", "647", "546", "HOECHST"]
-        }
+        },
+        "standardize_features":{}
 
     },
     "analysis": {
