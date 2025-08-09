@@ -7,9 +7,6 @@ separate tensors for each antibody as dictionaries rather than combining
 all antibodies into a single tensor.
 """
 
-# TODO: cell lines are comparable between biomarkers, but that drops class balance - move class balancing to data loader
-
-
 import numpy as np
 import polars as pl
 import torch
@@ -90,38 +87,6 @@ class AntibodyDataset(Dataset):
         self.metadata = self.metadata.with_columns(
             pl.col("Label").cast(pl.Int64)
         )
-        
-        # center and scale the data for selected antibody
-        ## TODO: this should be moved to preprocessing
-        #if self.normalize:
-        #    numeric_cols = [c for c in self.data.columns if c != "ID"]
-        #    self.data = self.data.with_columns([
-        #        ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-6)).alias(c)
-        #        for c in numeric_cols
-        #    ])
-        
-    # def _balance_samples(self, metadata: pl.DataFrame) -> pl.DataFrame:
-    #     """
-    #     Up-sample metadata by response category to ensure class balance.
-    #     """
-    #     counts = metadata.group_by(self.response).agg(
-    #         [pl.count("ID").alias("count")])
-    #     
-    #     max_count = int(counts["count"].max())
-    #     balanced_meta = []
-    #     
-    #     for resp in counts[self.response].to_list():
-    #         meta_resp = metadata.filter(pl.col(self.response) == resp)
-    #         n = meta_resp.height
-    #         n_to_sample = max_count - n
-    #         
-    #         if n_to_sample > 0:
-    #             idx = np.random.choice(n, n_to_sample, replace=True)
-    #             upsampled = [meta_resp.slice(i, 1) for i in idx]
-    #             meta_resp = pl.concat([meta_resp, pl.concat(upsampled)])
-
-    #         balanced_meta.append(meta_resp)
-    #     return pl.concat(balanced_meta)
     
     def _get_features(self, idx: int):
         """
@@ -131,8 +96,6 @@ class AntibodyDataset(Dataset):
         x = self.data.filter(pl.col("ID") == id_select)
 
         # Sample self.n_cells entries from x (with replacement if needed)
-        # Use deterministic sampling based on idx to ensure consistency
-        #np.random.seed(idx + 42)  # Add constant to avoid seed=0
         n_rows = x.height
         if n_rows >= self.n_cells:
             idxs = np.random.choice(n_rows, self.n_cells, replace=False)
