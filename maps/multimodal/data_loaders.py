@@ -16,13 +16,11 @@ import random
 from maps.screens import ImageScreenMultimodal
 
 
-class AntibodyDataset(Dataset):
+class ImagingDataset(Dataset):
     """
-    PyTorch Dataset for multimodal imaging data.
+    PyTorch Dataset for imaging data from one "modality" (e.g., marker).
     
-    Takes an ImageScreenMultimodal object and creates a dataset that samples
-    data according to response and grouping variables. Returns separate tensors
-    for each antibody rather than combining them.
+    Creates a dataset that samples data according to response and grouping variables. Handles sampling of single cell-level features and responses by grouping variable (e.g., cell lines).
     """
     
     def __init__(
@@ -40,11 +38,12 @@ class AntibodyDataset(Dataset):
         Initialize the dataset.
         
         Args:
-            screen: ImageScreenMultimodal object with loaded and preprocessed 
-            data
+            data: Polars DataFrame containing imaging data for the antibody
+            metadata: Polars DataFrame containing metadata for the antibody
             antibody: Antibody to use for the dataset
             response: Column name for response variable (default: "Mutations")
             grouping: Column name for grouping variable (default: "cell_lines")
+            response_map: Mapping from response strings to numeric labels
             n_cells: Number of samples to sample per group
             seed: Random seed for reproducible sampling
         """
@@ -55,7 +54,6 @@ class AntibodyDataset(Dataset):
         self.grouping = grouping
         self.n_cells = n_cells
         self.response_map = response_map  
-        self.betas = None
         
         if seed is not None:
             random.seed(seed)
@@ -66,14 +64,8 @@ class AntibodyDataset(Dataset):
         self._prepare_data()
         
     def _prepare_data(self):
-        """
-        Prepare the data by sampling according to response and grouping variables.
-        """
         
-        # Get unique response values across all antibodies to ensure consistency
-        #balanced_meta = self._balance_samples(self.metadata)
-        
-        # Map response strings to numeric labels for each antibody
+        # Map response strings to numeric labels
         if self.response_map is None:
             response_values = self.metadata[self.response].unique()
             self.response_map = {
@@ -128,27 +120,25 @@ class AntibodyDataset(Dataset):
         return len(self.metadata)
     
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
-        """
-        Get a single item from the dataset.
-        """
+        """Get a single item from the dataset."""
         x, feat_group = self._get_features(idx)
         y = self._get_response(idx)
 
         return x, y, feat_group
 
 
-class MultiAntibodyLoader:
+class MultiAntibodyLoader(DataLoader):
     """
-    Wraps multiple antibody-specific dataloaders and yields batches as dicts keyed by antibody.
+    Wraps multiple antibody-specific datasets in a single data loader. Batches are generated as dicts keyed by antibody. Data are generated for cell lines shared across antibodies.
     """
-    def __init__(self, dataloader_dict, shuffle: bool = True):
-        self.dataloader_dict = dataloader_dict
-        self.keys = list(dataloader_dict.keys())
+    def __init__(self, datset_dict, shuffle: bool = True):
+        self.datset_dict = datset_dict
+        self.keys = list(datset_dict.keys())
         
-        # Get cell lines for each antibody
+        # Find cell lines shared across antibodies
         cell_lines = {}
         for ab in self.keys:
-            ds = dataloader_dict[ab].dataset
+            ds = datset_dict[ab].dataset
             cl_mut_pairs = set(zip(
                 ds.metadata['CellLines'].to_list(), 
                 ds.metadata['Mutations'].to_list()
@@ -156,22 +146,27 @@ class MultiAntibodyLoader:
             cell_lines[ab] = cl_mut_pairs
        
 
-        # Find intersection of cell lines
         common_cell_lines = sorted(
             set.intersection(*cell_lines.values())
         )
         
-        # Convert common cell lines to a DataFrame for easier handling
+        # Count mutations representation for balancing
         self.cell_lines = pl.DataFrame(
             {"CellLines": [cl[0] for cl in common_cell_lines],
              "Mutations": [cl[1] for cl in common_cell_lines]}
         )
+       
+        self.mutation_counts = self.cell_lines.group_by("Mutations").agg(
+            [pl.count("CellLines").alias("count")]
+        )
+        
         
         self.balanced_cell_lines = self._balance_sample() 
-        self.batch_size = dataloader_dict[self.keys[0]].batch_size
+        self.batch_size = datset_dict[self.keys[0]].batch_size
         self.num_batches = len(self.balanced_cell_lines) // self.batch_size
         self._batch_idx = 0
         self.shuffle = shuffle
+        self.mode = "train"
 
     def __iter__(self):
         self._batch_idx = 0
@@ -179,7 +174,9 @@ class MultiAntibodyLoader:
         
         # Shuffle cell lines at the start of each epoch if enabled
         if self.shuffle:
-            random.shuffle(self.balanced_cell_lines.copy())
+            self.balanced_cell_lines = self.balanced_cell_lines.sample(
+                fraction=1.0, shuffle=True
+            )   
         
         return self
     
@@ -187,7 +184,13 @@ class MultiAntibodyLoader:
         return self.num_batches
     
     def __next__(self):
-        # Standard PyTorch DataLoader behavior: raise StopIteration at end of epoch
+        if self.mode == "train":
+            return self.__next_train__()
+        elif self.mode == "eval":
+            return self.__next_eval__()
+    
+    def __next_train__(self):
+        """Get the next batch of data for training."""
         if self._batch_idx >= self.num_batches:
             raise StopIteration
         
@@ -198,9 +201,9 @@ class MultiAntibodyLoader:
         batch = {}
         
         for ab in self.keys:
-            ds = self.dataloader_dict[ab].dataset
+            ds = self.datset_dict[ab].dataset
             x_list, y_list, feat_group_list = [], [], []
-            for cl in batch_cell_lines:
+            for cl in batch_cell_lines["CellLines"]:
                 idxs = (ds.metadata['CellLines'] == cl).arg_true()
                 idx = random.choice(idxs)
                 x, y, feat_group = ds[idx]
@@ -213,20 +216,45 @@ class MultiAntibodyLoader:
             )
         
         self._batch_idx += 1
-        return batch
+        return batch     
     
-    def _balance_sample(self):
-        """
-        Up-sample cell line table by response category to ensure class balance.
-        """
-        counts = self.cell_lines.group_by("Mutations").agg(
-            [pl.count("CellLines").alias("count")]
-        )
+    def __next_eval__(self):
+        """Get the next batch of data for evaluation."""
+        if self._batch_idx > self.num_batches:
+            raise StopIteration
         
-        max_count = int(counts["count"].max())
+        # Get cell lines for this batch
+        start = self._batch_idx * self.batch_size
+        end = start + self.batch_size
+        batch_cell_lines = self.balanced_cell_lines[start:end]
+        batch = {}
+        
+        for ab in self.keys:
+            ds = self.datset_dict[ab].dataset
+            x_list, y_list, cl_list, feat_group_list = [], [], [], []
+            for cl in batch_cell_lines["CellLines"]:
+                idxs = (ds.metadata['CellLines'] == cl).arg_true()
+                idx = random.choice(idxs)
+                x, y, feat_group = ds[idx]
+                x_list.append(x)
+                y_list.append(y)
+                feat_group_list.append(feat_group)
+                cl_list.append(cl)
+            
+            batch[ab] = (
+                torch.stack(x_list), torch.stack(y_list), feat_group_list[0], cl_list
+            )
+        
+        self._batch_idx += 1
+        return batch
+
+    def _balance_sample(self):
+        """Up-sample cell lines by response category for class balance."""
+        
+        max_count = int(self.mutation_counts["count"].max())
         balanced_cell_lines = []
         
-        for m in counts["Mutations"].to_list():
+        for m in self.mutation_counts["Mutations"].to_list():
             meta_cl = self.cell_lines.filter(pl.col("Mutations") == m)
             n = meta_cl.height
             n_to_sample = max_count - n
@@ -240,10 +268,11 @@ class MultiAntibodyLoader:
         
         return pl.concat(balanced_cell_lines)
 
-def create_multimodal_dataloader(
+def create_multiantibody_dataloader(
     screen: ImageScreenMultimodal,
     response: str = "Mutations",
     grouping: str = "CellLines",
+    response_map: Optional[Dict[str, int]] = None,
     n_cells: int = 10,
     batch_size: int = 8,
     shuffle: bool = True,
@@ -257,14 +286,15 @@ def create_multimodal_dataloader(
     dataloaders = {}
     
     # Initialize response key
-    merged_meta = pl.concat([s for s in screen.metadata.values()])
-    response_values = merged_meta[response].unique()
-    response_map = {
-        resp: i for i, resp in enumerate(response_values)
-    }
+    if response_map is None:
+        merged_meta = pl.concat([s for s in screen.metadata.values()])
+        response_values = merged_meta[response].unique()
+        response_map = {
+            resp: i for i, resp in enumerate(response_values)
+        }
             
     for antibody in screen.data.keys():
-        dataset = AntibodyDataset(
+        dataset = ImagingDataset(
             data=screen.data[antibody],
             metadata=screen.metadata[antibody],
             antibody=antibody,
@@ -295,18 +325,11 @@ if __name__ == "__main__":
     
     # Create and load screen
     screen = ImageScreenMultimodal(params)
-    screen.load(antibody=["FUS/EEA1", "COX IV/Galectin3/atubulin"])
+    screen.load(antibody=["FUS/EEA1"])
     screen.preprocess()
-    
-    # Create dataset and dataloader
-    dataset = AntibodyDataset(
-        screen.data, screen.metadata, n_cells=10, antibody="FUS/EEA1"
-    )
-    
-    sample = dataset.__getitem__(0)
-    
-    dataloader = create_multimodal_dataloader(screen)
-    
+
+    dataloader = create_multiantibody_dataloader(screen)
+
     batch = dataloader.__next__()
     keys = list(batch.keys())
     batch[keys[0]][1]

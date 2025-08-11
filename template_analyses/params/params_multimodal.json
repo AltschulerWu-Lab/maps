@@ -18,13 +18,19 @@
                 {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT"]}
             ]
         },
+        "drop_cells_by_feature_qt": {
+            "feature_filters": {
+                "Nucleus_Region_Area_[µm²]": 0.05,
+                "Cell_Region_Area_[µm²]": 0.05
+            }
+        },
         "select_feature_types": {
-            "feature_str": "^.*Intensity.*$"
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
+        },
+        "drop_feature_types": {
+            "feature_str": "^.*Sum$|^.*HOECHST.*$|^.*546.*$"
         },
         "drop_constant_features":{},
-        "group_markers": {
-            "groups":["488", "647", "546", "HOECHST"]
-        },
         "standardize_features":{}
 
     },
