@@ -1,0 +1,5 @@
+- In models.py, update the MultiAntibody predict function so that it returns a dataframe with predicted probability and group label—this should match the format of the evaluation loop in multiantibody/main.py
+
+- In multiantibody/data_loaders.py, the MultiAntibodyLoader class should add a method _get_feature_dims, which iterates over each antibody and creates a dict with keys being antibody and values the feature dimension. Then, in models.py, call this method to add feature dims to model config before initializing the model. See multiantibody/main.py for the implemntation of extracting features dims 
+
+- Write a test script that loads in the param files for single antibody and multi antibody models (use placeholders for file names). Then initialize a training run of multiclass logistic regression with leave_one_out fitters to confirm that the pipeline works for each.

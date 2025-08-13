@@ -3,33 +3,49 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class AntibodyEncoder(nn.Module):
-    def __init__(self, in_features, d_model, n_layers):
+    def __init__(self, in_features, d_model, n_layers, batch_norm=True, dropout=0.1):
         super().__init__()
-        self.batch_norm = nn.BatchNorm1d(in_features)
+        self.do_batch_norm = batch_norm
+        
+        if batch_norm:
+            self.batch_norm = nn.BatchNorm1d(in_features)
+        
         layers = []
         for _ in range(n_layers):
-            linear = nn.Linear(in_features if len(layers)==0 else d_model, d_model)
-            nn.init.kaiming_normal_(linear.weight, mode='fan_out', nonlinearity='relu')
+            d_layer = d_model if len(layers) > 0 else in_features
+            linear = nn.Linear(d_layer, d_model)
+            nn.init.kaiming_normal_(
+                linear.weight, mode='fan_out', nonlinearity='relu'
+            )
             nn.init.zeros_(linear.bias)
             layers.append(linear)
             layers.append(nn.ReLU())
+            
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+        
         self.encoder = nn.Sequential(*layers)
 
     def forward(self, x):
         # x: (batch, cells, features)
         b, c, f = x.shape
         x = x.view(-1, f)  # (batch*cells, features)
-        x = self.batch_norm(x)
-        x = x.view(b, c, f)
+
+        if self.do_batch_norm:
+            x = self.batch_norm(x)
+
         x = self.encoder(x)
+        x = x.view(b, c, -1)
         return x  # (batch, cells, d_model)
 
 class CellClassifierHead(nn.Module):
     def __init__(self, d_model, n_classes):
         super().__init__()
         self.fc = nn.Linear(d_model, n_classes)
-        # Initialize for classification head
-        nn.init.kaiming_normal_(self.fc.weight, mode='fan_in', nonlinearity='linear')
+        nn.init.kaiming_normal_(
+            self.fc.weight, mode='fan_in', nonlinearity='linear'
+        )
+        
         nn.init.zeros_(self.fc.bias)
 
     def forward(self, x):
@@ -43,7 +59,6 @@ class CellPoolingLayer(nn.Module):
         self.strategy = strategy
 
     def forward(self, x):
-        # x: (batch, cells, d_model)
         if self.strategy == 'mean':
             return x.mean(dim=1)  # (batch, d_model)
         else:
@@ -55,7 +70,6 @@ class AntibodyAggregationLayer(nn.Module):
         self.strategy = strategy
 
     def forward(self, x_dict):
-        # x_dict: {antibody: (batch, d_model)}
         if self.strategy == 'concat':
             x_list = [x_dict[k] for k in sorted(x_dict.keys())]
             return torch.cat(x_list, dim=1)  # (batch, d_model * n_antibodies)
@@ -66,8 +80,10 @@ class CellLineClassifierHead(nn.Module):
     def __init__(self, in_features, n_classes):
         super().__init__()
         self.fc = nn.Linear(in_features, n_classes)
-        # Initialize for classification head
-        nn.init.kaiming_normal_(self.fc.weight, mode='fan_in', nonlinearity='linear')
+        nn.init.kaiming_normal_(
+            self.fc.weight, mode='fan_in', nonlinearity='linear'
+        )
+        
         nn.init.zeros_(self.fc.bias)
 
     def forward(self, x):
@@ -75,7 +91,7 @@ class CellLineClassifierHead(nn.Module):
         logits = self.fc(x)  # (batch, n_classes)
         return logits
 
-class MultiModalClassifier(nn.Module):
+class MultiAntibodyClassifier(nn.Module):
     def __init__(self, antibody_feature_dims, d_model, n_layers, n_classes):
         super().__init__()
         # antibody_feature_dims: dict {antibody: in_features}
@@ -90,7 +106,9 @@ class MultiModalClassifier(nn.Module):
         })
         self.pooling = CellPoolingLayer()
         self.aggregation = AntibodyAggregationLayer()
-        self.line_head = CellLineClassifierHead(d_model * len(self.antibodies), n_classes)
+        self.line_head = CellLineClassifierHead(
+            d_model * len(self.antibodies), n_classes
+        )
 
     def forward(self, x_dict):
         # x_dict: {antibody: (batch, cells, features)}
@@ -99,8 +117,8 @@ class MultiModalClassifier(nn.Module):
         for ab in self.antibodies:
             x = x_dict[ab]
             emb = self.encoders[ab](x)  # (batch, cells, d_model)
-            cell_logits[ab] = self.cell_heads[ab](emb)  # (batch, cells, n_cell_classes)
-            pooled[ab] = self.pooling(emb)  # (batch, d_model)
+            cell_logits[ab] = self.cell_heads[ab](emb)
+            pooled[ab] = self.pooling(emb)
         agg = self.aggregation(pooled)  # (batch, d_model * n_antibodies)
-        line_logits = self.line_head(agg)  # (batch, n_line_classes)
+        line_logits = self.line_head(agg)
         return cell_logits, line_logits

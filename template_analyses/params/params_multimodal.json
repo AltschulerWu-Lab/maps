@@ -15,7 +15,7 @@
         },
         "select_sample_by_feature": {
             "select_key": [
-                {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT"]}
+                {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT", "SOD1"]}
             ]
         },
         "drop_cells_by_feature_qt": {
@@ -37,14 +37,11 @@
     "analysis": {
         "MAP": {
             "model": {
-                "BinaryLogistic": {
-                    "tol": 5e-2, 
-                    "solver": "saga"
-                }
+                "MultiAntibody": {}
             },
             "seed": 47,
             "response": "Mutations",
-            "fitter":  "leave_one_out_mut"
+            "fitter":  "leave_one_out_dataloader"
         }
     }
 }   

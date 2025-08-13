@@ -87,7 +87,7 @@ class ImageScreen(ScreenBase):
         self.metadata = dfmeta
 
 
-class ImageScreenMultimodal(ScreenBase):
+class ImageScreenMultiAntibody(ScreenBase):
     "Screen class for multimodal data"
     def __init__(self, params):
         super().__init__(params, OperettaLoader)
@@ -174,6 +174,6 @@ if __name__ == "__main__":
     screen.preprocess()
     screen.run_analysis()
     
-    mscreen = ImageScreenMultimodal(params)
+    mscreen = ImageScreenAntibody(params)
     mscreen.load(antibody=["FUS/EEA1", "COX IV/Galectin3/atubulin"])
     mscreen.preprocess()
