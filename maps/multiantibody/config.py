@@ -9,7 +9,7 @@ class TrainConfig:
     weight_decay: float = 1e-5
     step_size: int = 10
     gamma: float = 0.1
-    n_epochs: int = 50
+    n_epochs: int = 10
     verbose: bool = True
     log: bool = True
     patience: int = 5

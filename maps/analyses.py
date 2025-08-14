@@ -49,8 +49,11 @@ class MAP():
     def __init__(self, screen):
         analysis_params = screen.params.get("analysis")
         assert("MAP" in analysis_params.keys())
-        self.params = analysis_params.get("MAP") 
-        self.model = BaseModel(self.params)
+        self.params = analysis_params.get("MAP")
+        
+        model = list(self.params.get("model").keys())[0]
+        self.model = eval(model)(self.params)
+        
         self.fitter = self.params.get("fitter")
         self.screen = screen
 

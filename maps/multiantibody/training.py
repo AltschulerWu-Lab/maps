@@ -41,8 +41,8 @@ def train(
 
     # --- Training loop ---
     for epoch in range(config.n_epochs):
-        loss_cell = torch.tensor(0)
-        loss_line = torch.tensor(0)
+        loss_cell = torch.tensor(0).type(torch.float).to(device)
+        loss_line = torch.tensor(0).type(torch.float).to(device)
 
         for _, batch in enumerate(dataloader):
             if batch is None:

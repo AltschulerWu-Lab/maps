@@ -19,5 +19,3 @@ maps.egg-info/SOURCES.txt
 maps.egg-info/dependency_links.txt
 maps.egg-info/requires.txt
 maps.egg-info/top_level.txt
-tests/test_maps_pipeline_multiantibody.py
-tests/test_maps_pipeline_singleantibody.py

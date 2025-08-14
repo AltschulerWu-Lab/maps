@@ -13,7 +13,7 @@ from sklearn.metrics import roc_auc_score
 
 # --- Initialize parameters ---
 pdir = "/home/kkumbier/als/scripts/maps/template_analyses/params/"
-with open(pdir + "params_multimodal.json", "r") as f:
+with open(pdir + "maps_multiantibody.json", "r") as f:
     params = json.load(f)
 
 # Create and load screen
@@ -42,12 +42,6 @@ model = MultiAntibodyClassifier(**vars(model_config))
 print("Model architecture and parameter counts:")
 for name, param in model.named_parameters():
     print(f"{name}: {param.numel()} parameters")
-
-# --- Train model ---
-wandb.init(
-    project="multimodal_training_v2", 
-    config=vars(train_config)
-)
 
 train(model, dataloader, train_config)
 

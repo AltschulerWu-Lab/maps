@@ -1,9 +1,6 @@
-"""
-Test script for MAPs single-antibody model with leave-one-out fitter.
-"""
 import json
 
-from maps.models import BaseModel
+from maps.models import BinaryLogistic
 from maps.fitters import leave_one_out
 from maps.screens import ImageScreen
 
@@ -21,7 +18,8 @@ screen.load(antibody="FUS/EEA1")
 screen.preprocess()
 
 # Initialize model
-model = BaseModel(single_params["analysis"]["MAP"])
+model_name = list(single_params["analysis"]["MAP"]["model"].keys())[0]
+model = eval(model_name)(**single_params["analysis"]["MAP"])
 
 # Run leave-one-out fitter
 print("Running single antibody leave-one-out...")

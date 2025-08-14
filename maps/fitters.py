@@ -17,6 +17,7 @@ from maps.processing import select_sample_by_feature
 from maps.fitter_utils import cellline_split
 
 from maps.multiantibody.config import DataLoaderConfig
+from maps.models import SKLearnModel, PyTorchModel
 
 from typing import TYPE_CHECKING, List
 import copy
@@ -26,10 +27,11 @@ if TYPE_CHECKING:
     from maps.screens import ImageScreenMultiAntibody
 
 # --- Leave one out training loops ---
-def leave_one_out_mut(
-    screen: 'ScreenBase', model: BaseModel) -> Dict:
+def leave_one_out_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     """ Wapper for running `leave_one_out` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
     """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
     
     mutations = screen.metadata["Mutations"].unique()
     mutations = set(mutations) - set(["WT", "sporadic"])
@@ -51,11 +53,24 @@ def leave_one_out_mut(
          
     return out
 
-def leave_one_out(
-    screen: "ScreenBase", model: BaseModel, holdout: List|None=None):
-    """Fit models with one cell line removed and evaluates prediction on 
-    hold-out cell line. Optionally include additional set of cell lines as holdouts.
+def leave_one_out(screen, model, holdout=None):
+    """Wrapper for leave-one-out cross-validation with hold-out cell lines. Dispatches to sklearn or pytorch implementation based on model type."""
+    if isinstance(model, SKLearnModel):
+        return leave_one_out_sklearn(screen, model, holdout)
+    elif isinstance(model, PyTorchModel):
+        return leave_one_out_pytorch(screen, model, holdout)
+    else:
+        raise ValueError(f"Unsupported model type: {type(model)}")
+
+
+def leave_one_out_sklearn(
+    screen: "ScreenBase", 
+    model: BaseModel, 
+    holdout: List|None=None):
+    """Handles leave-one-out cross-validation for scikit-learn models, which take dataframe arguments for fitting and prediction.
     """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
     y = screen.get_response() 
     x = screen.get_data()
     
@@ -91,14 +106,14 @@ def leave_one_out(
             .to_series()
         
         # Fit model and make predictions
-        fitted_cl = model.fit(x=x, y=y, id_train=id_train)
-        predicted_cl = model.predict(fitted_cl, x=x, id_test=id_test)
+        model.fit(x=x, y=y, id_train=id_train)
+        predicted_cl = model.predict(x=x, id_test=id_test)
         predicted_cl= predicted_cl.with_columns(pl.lit(cl).alias("Holdout"))
         
         # Merge results
         predicted.append(predicted_cl.join(screen.metadata, on="ID"))
-        fitted.append(fitted_cl)
-        importance.append(model.get_importance(fitted_cl, x))
+        fitted.append(copy.deepcopy(model))
+        importance.append(model.get_importance(x))
       
     out = {}  
     out["fitted"] = fitted
@@ -107,55 +122,60 @@ def leave_one_out(
     return out
         
 
-def leave_one_out_dataloader(
+def leave_one_out_pytorch(
     screen: "ImageScreenMultiAntibody", 
     model: BaseModel, 
     holdout: List|None=None
 ):
-    """
-    Leave-one-cell-line-out cross-validation using DataLoader interface.
+    """ Handles leave-one-cell-line-out classification for PyTorch models, which take a DataLoader for training and prediction.
     """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
+    assert isinstance(screen.data, dict), "expected screen dictionary"
+    assert isinstance(screen.metadata, dict), "expected screen metadata dictionary"
+
+    map_params = screen.params.get("analysis").get("MAP", None)
+    assert map_params is not None, "MAP parameters not found"
     
-    dataloader_config = screen.params.get("analysis").get("MAP", None).get("data_loader", None)
+    # Set configs for batch loading 
+    dataloader_config = map_params.get("data_loader", None)
     if dataloader_config is None:
         dataloader_config = DataLoaderConfig()
 
+    # Initialize training set of cell lines
     cell_lines = [s["CellLines"].unique() for s in screen.metadata.values()]
     cell_lines = pl.concat(cell_lines).to_list()
     if holdout is not None:
         cell_lines = list(set(cell_lines) - set(holdout))
 
+    # --- Iterate over each training cell line and fit model ---
     fitted = []
     predicted = []
     for cl in cell_lines:
         cell_lines_test = [cl]
         if holdout is not None:
             cell_lines_test += holdout
+        cell_lines_test = pl.Series(cell_lines_test).implode()
 
-        # Split metadata for train/test
+        # Split metadata for train/test for current cell line
         train_screen = copy.deepcopy(screen)
         test_screen = copy.deepcopy(screen)
         
         for ab in screen.data.keys():
-            train_meta = screen.metadata[ab].filter(
+            train_screen.metadata[ab] = screen.metadata[ab].filter(
                 ~pl.col("CellLines").is_in(cell_lines_test)
             )
             
-            test_meta = screen.metadata[ab].filter(
+            test_screen.metadata[ab] = screen.metadata[ab].filter(
                 pl.col("CellLines").is_in(cell_lines_test)
             )
             
-            train_screen.metadata[ab] = train_meta
-            test_screen.metadata[ab] = test_meta
-
             train_screen.data[ab] = screen.data[ab].filter(
-                pl.col("ID").is_in(train_meta["ID"])
+                pl.col("ID").is_in(train_screen.metadata[ab]["ID"].implode())
             )
 
             test_screen.data[ab] = screen.data[ab].filter(
-                pl.col("ID").is_in(test_meta["ID"])
+                pl.col("ID").is_in(test_screen.metadata[ab]["ID"].implode())
             )
 
         # Create dataloaders
@@ -170,19 +190,20 @@ def leave_one_out_dataloader(
         )
 
         # Fit and predict
-        fitted_cl = model.fit(data_loader=train_loader)
-        ypred = model.predict(fitted_cl, data_loader=test_loader)
+        model.fit(data_loader=train_loader)
+        ypred = model.predict(data_loader=test_loader)
         # Attach cell line info to predictions as needed
 
         # Collect results
-        predicted.append( ... )  # format as needed
-        fitted.append(fitted_cl)
+        predicted.append(ypred)  # format as needed
+        fitted_model = model.model.to("cpu")
+        fitted.append(copy.deepcopy(fitted_model))
 
     # Combine results as in leave_one_out
     out = {
         "fitted": fitted,
-        "predicted": ...,
-        "importance": None  # or as appropriate
+        "predicted": pl.concat(predicted),
+        "importance": None 
     }
     return out
 
@@ -190,7 +211,9 @@ def leave_one_out_dataloader(
 def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     """ Wapper for running `sample_split` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
     """
-    
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
+
     mutations = screen.metadata["Mutations"].unique()
     mutations = list(set(mutations) - set(["WT", "sporadic"]))
     
@@ -221,6 +244,8 @@ def sample_split(
     holdout: List|None=None, seed: int=47) -> Dict:
     """ Splits data into two equally sized groups. Models are fit to each group and predictions are generated for the held-out samples. Sporadics are always dropped from training and evaluated on testing.
     """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
     
     out = {}
     
