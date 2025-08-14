@@ -15,7 +15,6 @@ from typing import Dict
 from maps.models import BaseModel
 from maps.processing import select_sample_by_feature
 from maps.fitter_utils import cellline_split
-from maps.multiantibody.data_loaders import create_multiantibody_dataloader
 
 from maps.multiantibody.config import DataLoaderConfig
 
@@ -83,11 +82,13 @@ def leave_one_out(
         # Create train and test indices
         id_train = screen.metadata \
             .filter(~pl.col("CellLines").is_in(cell_lines_test)) \
-            .select("ID")
-            
+            .select("ID") \
+            .to_series()
+
         id_test = screen.metadata \
             .filter(pl.col("CellLines").is_in(cell_lines_test)) \
-            .select("ID")
+            .select("ID") \
+            .to_series()
         
         # Fit model and make predictions
         fitted_cl = model.fit(x=x, y=y, id_train=id_train)
@@ -114,11 +115,15 @@ def leave_one_out_dataloader(
     """
     Leave-one-cell-line-out cross-validation using DataLoader interface.
     """
-    dataloader_config = screen.params.get("analysis").get("MAP", None)
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
+    
+    dataloader_config = screen.params.get("analysis").get("MAP", None).get("data_loader", None)
     if dataloader_config is None:
         dataloader_config = DataLoaderConfig()
 
-    cell_lines = screen.metadata["CellLines"].unique().to_list()
+    cell_lines = [s["CellLines"].unique() for s in screen.metadata.values()]
+    cell_lines = pl.concat(cell_lines).to_list()
     if holdout is not None:
         cell_lines = list(set(cell_lines) - set(holdout))
 
@@ -132,6 +137,7 @@ def leave_one_out_dataloader(
         # Split metadata for train/test
         train_screen = copy.deepcopy(screen)
         test_screen = copy.deepcopy(screen)
+        
         for ab in screen.data.keys():
             train_meta = screen.metadata[ab].filter(
                 ~pl.col("CellLines").is_in(cell_lines_test)
@@ -145,21 +151,22 @@ def leave_one_out_dataloader(
             test_screen.metadata[ab] = test_meta
 
             train_screen.data[ab] = screen.data[ab].filter(
-                pl.col("ID").is_in(train_meta.select("ID"))
+                pl.col("ID").is_in(train_meta["ID"])
             )
 
             test_screen.data[ab] = screen.data[ab].filter(
-                pl.col("ID").is_in(test_meta.select("ID"))
+                pl.col("ID").is_in(test_meta["ID"])
             )
 
         # Create dataloaders
         from maps.multiantibody.data_loaders import create_multiantibody_dataloader
         train_loader = create_multiantibody_dataloader(
-            train_screen, shuffle=True, **dataloader_config
+            train_screen, **vars(dataloader_config)
         )
         
+        dataloader_config.shuffle = False
         test_loader = create_multiantibody_dataloader(
-            test_screen, shuffle=False, **dataloader_config
+            test_screen, **vars(dataloader_config)
         )
 
         # Fit and predict

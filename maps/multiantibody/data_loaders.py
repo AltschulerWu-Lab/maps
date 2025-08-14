@@ -115,16 +115,16 @@ class ImagingDataset(Dataset):
 
 class MultiAntibodyLoader(DataLoader):
     """
-    Wraps multiple antibody-specific datasets in a single data loader. Batches are generated as dicts keyed by antibody. Data are generated for cell lines shared across antibodies.
+    Wraps multiple antibody-specific data loaders in a single data loader. Batches are generated as dicts keyed by antibody. Data are generated for cell lines shared across antibodies and balanced by response class.
     """
-    def __init__(self, datset_dict, shuffle: bool=True, mode: str="train"):
-        self.datset_dict = datset_dict
-        self.keys = list(datset_dict.keys())
+    def __init__(self, data_loader_dict, shuffle: bool=True, mode: str="train"):
+        self.data_loader_dict = data_loader_dict
+        self.keys = list(data_loader_dict.keys())
         
         # Find cell lines shared across antibodies
         cell_lines = {}
         for ab in self.keys:
-            ds = datset_dict[ab].dataset
+            ds = data_loader_dict[ab].dataset
             cl_mut_pairs = set(zip(
                 ds.metadata['CellLines'].to_list(), 
                 ds.metadata['Mutations'].to_list()
@@ -147,7 +147,11 @@ class MultiAntibodyLoader(DataLoader):
         )    
         
         self.balanced_cell_lines = self._balance_sample() 
-        self.batch_size = datset_dict[self.keys[0]].batch_size
+        self.batch_size = data_loader_dict[self.keys[0]].batch_size
+        
+        if self.batch_size is None:
+            raise ValueError("batch_size must be specified and not None.")
+        
         self.num_batches = len(self.balanced_cell_lines) // self.batch_size
         self._batch_idx = 0
         self.shuffle = shuffle
@@ -186,7 +190,7 @@ class MultiAntibodyLoader(DataLoader):
         batch = {}
         
         for ab in self.keys:
-            ds = self.datset_dict[ab].dataset
+            ds = self.data_loader_dict[ab].dataset
             x_list, y_list, feat_group_list = [], [], []
             for cl in batch_cell_lines["CellLines"]:
                 x, y, feat_group = ds.__getitem__(cl)
@@ -211,7 +215,7 @@ class MultiAntibodyLoader(DataLoader):
         batch = {}
         
         for ab in self.keys:
-            ds = self.datset_dict[ab].dataset
+            ds = self.data_loader_dict[ab].dataset
             x, y, feat_group = ds.__getitem__(cl)
             x.unsqueeze_(0)
             y.unsqueeze_(0)  # Add batch dimension for evaluation
@@ -244,7 +248,7 @@ class MultiAntibodyLoader(DataLoader):
         """Get the feature dimensions for each antibody."""
         feature_dims = {}
         for ab in self.keys:
-            ds = self.datset_dict[ab].dataset.data
+            ds = self.data_loader_dict[ab].dataset.data
             feature_dims[ab] = ds.shape[1] - 1
         return feature_dims
 
@@ -264,15 +268,16 @@ def create_multiantibody_dataloader(
     Create a PyTorch DataLoader for multimodal imaging data.
     Returns a MultiAntibodyLoader that yields batches as dicts keyed by antibody.
     """
+    assert screen.data is not None, "screen data is not loaded"
+    assert screen.metadata is not None, "screen metadata is not loaded"
+    
     dataloaders = {}
     
     # Initialize response key
     if response_map is None:
         merged_meta = pl.concat([s for s in screen.metadata.values()])
         response_values = merged_meta[response].unique()
-        response_map = {
-            resp: i for i, resp in enumerate(response_values)
-        }
+        response_map = {resp: i for i, resp in enumerate(response_values)}
             
     for antibody in screen.data.keys():
         dataset = ImagingDataset(

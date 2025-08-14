@@ -1,4 +1,4 @@
-Metadata-Version: 2.2
+Metadata-Version: 2.4
 Name: maps
 Version: 0.0.0
 Summary: Pipeline for running ALS MAP scoring and related analyses
@@ -8,7 +8,7 @@ Author-email: karl.kumbier@ucsf.edu
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.12
+Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 Requires-Dist: polars
 Requires-Dist: pandas

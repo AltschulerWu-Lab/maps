@@ -1,8 +1,6 @@
 {
     "name": "maps_dmso", 
-    "screen": [
-        "20250216_AWALS37_Full_screen_n96"
-    ],
+    "screen": "20250216_AWALS37_Full_screen_n96",
     "root": "/awlab/projects/2024_ALS/Experiments",
     "data_file": "Objects_Population - Nuclei Selected.txt",
     "eval_dir": "Evaluation1",
@@ -15,7 +13,7 @@
         },
         "select_sample_by_feature": {
             "select_key": [
-                {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT", "SOD1"]}
+                {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT"]}
             ]
         },
         "drop_cells_by_feature_qt": {
@@ -28,20 +26,29 @@
             "feature_str": "^.*Intensity.*$|^.*Spot.*$"
         },
         "drop_feature_types": {
-            "feature_str": "^.*Sum$|^.*HOECHST.*$|^.*546.*$"
+            "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
         },
         "drop_constant_features":{},
-        "standardize_features":{}
-
+        "pca_transform": {
+            "alpha": 0.95,
+            "groups":["488", "647"]
+        },
+        "subsample_rows_by_id": {
+            "n": 100,
+            "seed": 47
+        }
     },
     "analysis": {
         "MAP": {
             "model": {
-                "MultiAntibody": {}
+                "BinaryLogistic": {
+                    "tol": 5e-2, 
+                    "solver": "saga"
+                }
             },
             "seed": 47,
             "response": "Mutations",
-            "fitter":  "leave_one_out_dataloader"
+            "fitter":  "leave_one_out"
         }
     }
 }   

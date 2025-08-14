@@ -1,0 +1,18 @@
+# conda environment file for maps
+name: maps
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - polars
+  - scikit-learn
+  - pytorch
+  - matplotlib
+  - seaborn
+  - statsmodels
+  - imbalanced-learn
+  - wandb
+  - pyarrow
+  - pip
+  - pip:
+      

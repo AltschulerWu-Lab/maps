@@ -41,10 +41,10 @@ def train(
 
     # --- Training loop ---
     for epoch in range(config.n_epochs):
-        loss_cell = 0
-        loss_line = 0
+        loss_cell = torch.tensor(0)
+        loss_line = torch.tensor(0)
 
-        for i, batch in enumerate(dataloader):
+        for _, batch in enumerate(dataloader):
             if batch is None:
                 continue
 
@@ -53,25 +53,36 @@ def train(
             y_cell_dict = {ab: batch[ab][1].to(device) for ab in batch}
             cell_logits_dict, line_logits = model(x_dict)
 
-            # Cell loss computed for each antibody
+            # Compute single cell-level loss for each antibody
             for ab in cell_logits_dict:
                 logits = cell_logits_dict[ab]
                 y_cell = y_cell_dict[ab]
-                y_cell_expanded = y_cell.unsqueeze(1).expand(-1, logits.shape[1]).reshape(-1)
+                y_cell_expanded = y_cell.unsqueeze(1).expand(
+                    -1, logits.shape[1]).reshape(-1)
+                
                 logits_flat = logits.reshape(-1, logits.shape[-1])
                 loss_cell += criterion_cell(logits_flat, y_cell_expanded)
-                loss_cell = loss_cell / (len(cell_logits_dict) * len(dataloader))
-
+                
+            loss_cell = loss_cell / (len(cell_logits_dict) * len(dataloader))
+            
             # Cell line loss computed over all antibodies
             y_line = y_cell_dict[list(batch.keys())[0]]
             loss_line += criterion_line(line_logits, y_line)
             loss_line = loss_line / len(dataloader)
 
         # Total loss - accumulated over all cell lines
-        loss = (loss_line + loss_cell)
-        loss.backward()
+        loss = loss_line + loss_cell
         optimizer.step()
         scheduler.step()
+        
+        # Log training loss
+        if config.verbose:
+            print(f"Epoch {epoch+1}/{config.n_epochs}, Loss: {loss.item()}")
+        if config.log and wandb.run is not None:
+            wandb.log({
+                "loss_line": loss_line.item(),
+                "loss_cell": loss_cell.item()
+            })
 
         # Early stopping check
         if loss.item() < best_loss - 1e-6:  # min_delta=1e-6
@@ -79,14 +90,6 @@ def train(
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
-
-        if config.verbose:
-            print(f"Epoch {epoch+1}/{config.n_epochs}, Loss: {loss.item()}")
-        if config.log:
-            wandb.log({
-                "loss_line": loss_line.item(),
-                "loss_cell": loss_cell.item()
-            })
 
         if epochs_no_improve >= patience:
             if config.verbose:

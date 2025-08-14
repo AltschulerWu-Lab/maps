@@ -13,7 +13,7 @@
         },
         "select_sample_by_feature": {
             "select_key": [
-                {"Drugs": ["DMSO"]}
+                {"Drugs": ["DMSO"], "Mutations": ["FUS", "WT"]}
             ]
         },
         "drop_cells_by_feature_qt": {
@@ -23,10 +23,10 @@
             }
         },
         "select_feature_types": {
-            "feature_str": "^.*Intensity.*$"
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
         },
         "drop_feature_types": {
-            "feature_str": "^.*HOECHST.*$|^.*546.*$"
+            "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
         },
         "drop_constant_features":{},
         "pca_transform": {
@@ -36,19 +36,18 @@
         "subsample_rows_by_id": {
             "n": 100,
             "seed": 47
-        }
+        },
+        "standardize_features":{}
+
     },
     "analysis": {
         "MAP": {
             "model": {
-                "BinaryLogistic": {
-                    "tol": 5e-2, 
-                    "solver": "saga"
-                }
+                "MultiAntibody": {}
             },
             "seed": 47,
             "response": "Mutations",
-            "fitter":  "leave_one_out_mut"
+            "fitter":  "leave_one_out_dataloader"
         }
     }
 }   

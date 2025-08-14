@@ -48,11 +48,23 @@ class BaseModel():
         return self.model._get_importance(fitted, x)
     
 
-# --- Logistic regression classification models ---
-class Logistic():
-    """Logistic regression model for binary classification. Additional kwargs as specified in `sklearn.linear_model.LogisticRegression`."""
+class SKLearnModel():
+    """Base class for all scikit-learn models."""
     def __init__(self, **kwargs):
         self.params = kwargs
+        self.model_type = "sklearn"
+
+class PyTorchModel():
+    """Base class for all PyTorch models."""
+    def __init__(self, **kwargs):
+        self.params = kwargs
+        self.model_type = "pytorch"
+
+# --- Logistic regression classification models ---
+class Logistic(SKLearnModel):
+    """Logistic regression model for binary classification. Additional kwargs as specified in `sklearn.linear_model.LogisticRegression`."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def _fit(self, x=None, y=None, id_train=None, data_loader=None):
         # Check that we received the expected arguments for this model
@@ -215,23 +227,51 @@ class MultiAntibody:
         else:
             kwargs = {"train": TrainConfig(), "model": ModelConfig()}
 
-        model = MultiAntibodyClassifier(**kwargs.get("model", ModelConfig()))
-        train(model, data_loader, kwargs.get("train", TrainConfig()))
+        # Initialize model
+        model_config = kwargs.get("model", ModelConfig())
+        model_config.antibody_feature_dims = data_loader._get_feature_dims() 
+        model = MultiAntibodyClassifier(**vars(model_config))
+        
+        train_config = kwargs.get("train", TrainConfig())
+        train(model, data_loader, train_config)
         return {"model": model}
 
-    def _predict(self,  model, data_loader=None):
+    def _predict(self, model, data_loader=None):
         if data_loader is None:
             raise ValueError("MultiAntibody requires a data_loader")
+        
         model.eval()
-        all_preds = []
-
+        all_probs = []
+        all_labels = []
+        all_lines = []
+        device = model.parameters().device
+        data_loader.mode = "eval"
+        
         with torch.no_grad():
             for batch in data_loader:
-                logits = model(batch)
-                probs = torch.softmax(logits, dim=1)
-                all_preds.append(probs.cpu().numpy())
-
-        return np.vstack(all_preds) if all_preds else np.array([])
+                if batch is None:
+                    continue
+                x_dict = {ab: batch[ab][0].to(device) for ab in batch}
+                y_line = batch[list(batch.keys())[0]][1].to(device)
+                cl = batch[list(batch.keys())[0]][-1]
+                _, line_logits = model(x_dict)
+                probs = torch.softmax(line_logits, dim=1)
+                all_probs.append(probs.cpu())
+                all_labels.append(y_line.cpu())
+                all_lines.extend(cl)
+            
+        # Merge results into DF
+        all_probs = torch.cat(all_probs, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
+        preds = pd.DataFrame(all_probs.numpy())
+        preds.columns = [
+            f"Class_{i}" for i in range(model.line_head.fc.out_features)
+        ]
+        
+        preds["CellLines"] = all_lines
+        preds["True"] = all_labels.numpy()
+        preds = preds.sort_values(by="Class_0", ascending=False)
+        return preds
 
     def _get_importance(self, model, x):
         # Not implemented for deep models

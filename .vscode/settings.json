@@ -1,0 +1,5 @@
+{
+  "python.defaultInterpreterPath": "/awlab/projects/2024_ALS/software/miniforge3/envs/maps/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.condaPath": "/awlab/projects/2024_ALS/software/miniforge3/bin/conda"
+}
