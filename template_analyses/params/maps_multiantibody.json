@@ -29,14 +29,6 @@
             "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
         },
         "drop_constant_features":{},
-        "pca_transform": {
-            "alpha": 0.95,
-            "groups":["488", "647"]
-        },
-        "subsample_rows_by_id": {
-            "n": 100,
-            "seed": 47
-        },
         "standardize_features":{}
 
     },
@@ -47,7 +39,7 @@
             },
             "seed": 47,
             "response": "Mutations",
-            "fitter":  "leave_one_out_dataloader"
+            "fitter":  "leave_one_out"
         }
     }
 }   

@@ -30,5 +30,5 @@ class DataLoaderConfig:
     shuffle: bool = True
     mode: str = "train"
     response_map: dict = field(
-        default_factory=lambda: {"WT": 0, "FUS": 1, "SOD1": 2}
+        default_factory=lambda: {"WT": 0, "FUS": 1}
     )
