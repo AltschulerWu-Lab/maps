@@ -99,6 +99,7 @@ class Logistic(SKLearnModel):
             idx = x["ID"].is_in(id_test)
             xtest = self.scaler.transform(x.filter(idx).drop("ID"))
         else:
+            idx = pd.Series([True] * x.shape[0])
             xtest = self.scaler.transform(x.drop("ID"))
 
         ypred = self.model.predict_proba(xtest)

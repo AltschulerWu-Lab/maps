@@ -29,6 +29,10 @@
             "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
         },
         "drop_constant_features":{},
+        "subsample_rows_by_id": {
+            "n": 100,
+            "seed": 47
+        },
         "standardize_features":{}
 
     },

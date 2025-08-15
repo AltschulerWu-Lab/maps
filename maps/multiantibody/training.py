@@ -72,6 +72,7 @@ def train(
 
         # Total loss - accumulated over all cell lines
         loss = loss_line + loss_cell
+        loss.backward()
         optimizer.step()
         scheduler.step()
         
