@@ -7,9 +7,10 @@ import numpy as np
 import polars as pl
 import torch
 from torch.utils.data import Dataset, DataLoader
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Any
 import random
 from typing import TYPE_CHECKING
+from sklearn.preprocessing import StandardScaler
 
 if TYPE_CHECKING:
     from maps.screens import ImageScreenMultiAntibody
@@ -32,7 +33,9 @@ class ImagingDataset(Dataset):
         grouping: str = "CellLines", 
         response_map: Optional[Dict[str, int]] = None,
         n_cells: int = 10,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        scale: bool = False,
+        scaler: Optional[Any] = None
     ):
         """
         Args:
@@ -52,35 +55,67 @@ class ImagingDataset(Dataset):
         self.grouping = grouping
         self.n_cells = n_cells
         self.response_map = response_map  
-        
+        self.scale = scale
+        self.scaler = scaler
+
         if seed is not None:
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-        
+
         # Prepare the dataset
         self._prepare_data()
         
     def _prepare_data(self):
-        
         # Map response strings to numeric labels
         if self.response_map is None:
             response_values = self.metadata[self.response].unique()
             self.response_map = {
                 resp: i for i, resp in enumerate(response_values)
             }
-        
         self.metadata = self.metadata.with_columns(
             pl.col(self.response).replace(self.response_map).alias("Label")
         )
-        
         self.metadata = self.metadata.with_columns(
             pl.col("Label").cast(pl.Int64)
         )
+        # Scale numeric columns if requested
+        if self.scale:
+            # Identify numeric columns (excluding 'ID')
+            numeric_dtype = (pl.Float32, pl.Float64, pl.Int32, pl.Int64)
+            numeric_cols = [col for col, dtype in
+                            zip(self.data.columns, self.data.dtypes)
+                            if col != "ID" and dtype in numeric_dtype
+            ]
+            
+            if self.scaler is not None:
+                if not hasattr(self.scaler, 'transform'):
+                    raise ValueError(
+                        "Provided scaler does not have a 'transform' method."
+                    )
+                
+                scaled = self.scaler.transform(
+                    self.data.select(numeric_cols).to_numpy()
+                )
+                
+                self.data = self.data.with_columns([
+                    pl.Series(col, scaled[:, i]) 
+                    for i, col in enumerate(numeric_cols)
+                ])
+            else:
+                self.scaler = StandardScaler()
+                scaled = self.scaler.fit_transform(
+                    self.data.select(numeric_cols).to_numpy()
+                )
+                
+                self.data = self.data.with_columns([
+                    pl.Series(col, scaled[:, i])
+                    for i, col in enumerate(numeric_cols)
+                ])
     
     def _get_features(self, group: str):
         """Get features for a specific antibody at a given index."""
-        #group = self.metadata[self.grouping].to_list()[idx]
+        # group = self.metadata[self.grouping].to_list()[idx]
         group_meta = self.metadata.filter(pl.col(self.grouping) == group)
         x = self.data.filter(pl.col("ID").is_in(group_meta["ID"]))
 
@@ -152,6 +187,8 @@ class MultiAntibodyLoader(DataLoader):
         if self.batch_size is None:
             raise ValueError("batch_size must be specified and not None.")
         
+        if self.batch_size is None:
+            raise ValueError("batch_size must be specified and not None.")
         self.num_batches = len(self.balanced_cell_lines) // self.batch_size
         self._batch_idx = 0
         self.shuffle = shuffle
@@ -184,6 +221,8 @@ class MultiAntibodyLoader(DataLoader):
             raise StopIteration
         
         # Get cell lines for this batch
+        if self.batch_size is None:
+            raise ValueError("batch_size must be specified and not None.")
         start = self._batch_idx * self.batch_size
         end = start + self.batch_size
         batch_cell_lines = self.balanced_cell_lines[start:end]
@@ -227,7 +266,12 @@ class MultiAntibodyLoader(DataLoader):
     def _balance_sample(self):
         """Up-sample cell lines by response category for class balance."""
         
-        max_count = int(self.mutation_counts["count"].max())
+        # Ensure we only use numeric values for max_count
+        count_col = self.mutation_counts["count"]
+        numeric_counts = [v for v in count_col if isinstance(v, (int, float, np.integer, np.floating))]
+        if not numeric_counts:
+            raise ValueError("No numeric mutation counts found for balancing.")
+        max_count = int(max(numeric_counts))
         balanced_cell_lines = []
         
         for m in self.mutation_counts["Mutations"].to_list():
@@ -252,6 +296,14 @@ class MultiAntibodyLoader(DataLoader):
             feature_dims[ab] = ds.shape[1] - 1
         return feature_dims
 
+    def _get_scalers(self):
+        """Get the scalers for each antibody."""
+        scalers = {}
+        for ab in self.keys:
+            ds = self.data_loader_dict[ab].dataset
+            scalers[ab] = ds.scaler
+        return scalers
+
 def create_multiantibody_dataloader(
     screen: "ImageScreenMultiAntibody",
     response: str = "Mutations",
@@ -262,11 +314,18 @@ def create_multiantibody_dataloader(
     batch_size: int = 8,
     shuffle: bool = True,
     num_workers: int = 0,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
+    scale: bool = False,
+    scalers: Optional[Dict[str, Any]] = None
 ) -> MultiAntibodyLoader:
     """
     Create a PyTorch DataLoader for multimodal imaging data.
     Returns a MultiAntibodyLoader that yields batches as dicts keyed by antibody.
+    
+    Args:
+        scalers: Dictionary with antibody names as keys and StandardScaler objects as values.
+                If scale=True and scalers is None, new scalers will be created for each antibody.
+                If scale=True and scalers is provided, the corresponding scaler will be used for each antibody.
     """
     assert screen.data is not None, "screen data is not loaded"
     assert screen.metadata is not None, "screen metadata is not loaded"
@@ -280,6 +339,11 @@ def create_multiantibody_dataloader(
         response_map = {resp: i for i, resp in enumerate(response_values)}
             
     for antibody in screen.data.keys():
+        # Get the appropriate scaler for this antibody
+        antibody_scaler = None
+        if scale and scalers is not None:
+            antibody_scaler = scalers.get(antibody, None)
+        
         dataset = ImagingDataset(
             data=screen.data[antibody],
             metadata=screen.metadata[antibody],
@@ -288,16 +352,16 @@ def create_multiantibody_dataloader(
             response_map=response_map,
             grouping=grouping,
             n_cells=n_cells,
-            seed=seed
+            seed=seed,
+            scale=scale,
+            scaler=antibody_scaler
         )
-        
         dataloaders[antibody] = DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers
         )
-    
     return MultiAntibodyLoader(dataloaders, shuffle=shuffle, mode=mode)
 
 
@@ -313,21 +377,30 @@ if __name__ == "__main__":
     
     # Create and load screen
     screen = ImageScreenMultiAntibody(params)
-    screen.load(antibody=["FUS/EEA1"])
-    screen.preprocess()
+    if screen.data is not None and screen.metadata is not None:
+        screen.load(antibody=["FUS/EEA1"])
+        screen.preprocess()
 
-    dataset = ImagingDataset(
-        data=screen.data["FUS/EEA1"],
-        metadata=screen.metadata["FUS/EEA1"],
-        antibody="FUS/EEA1",
-        response="Mutations",
-        grouping="CellLines",
-        n_cells=10
-    )
-    
-    dataloader = create_multiantibody_dataloader(screen)
+        dataset = ImagingDataset(
+            data=screen.data["FUS/EEA1"],
+            metadata=screen.metadata["FUS/EEA1"],
+            antibody="FUS/EEA1",
+            response="Mutations",
+            grouping="CellLines",
+            n_cells=10
+        )
+        
+        # Example with scalers dictionary
+        scalers_dict = {"FUS/EEA1": StandardScaler()}
+        dataloader = create_multiantibody_dataloader(
+            screen, 
+            scale=True, 
+            scalers=scalers_dict
+        )
 
-    batch = dataloader.__next__()
-    keys = list(batch.keys())
-    batch[keys[0]][1]
-    batch[keys[1]][1]
+        batch = dataloader.__next__()
+        if batch is not None:
+            keys = list(batch.keys())
+            print(batch[keys[0]][1])
+            if len(keys) > 1:
+                print(batch[keys[1]][1])

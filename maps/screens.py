@@ -4,17 +4,18 @@ Screens are the basic container for storing and running an entire analysis pipel
 The BaseScreen class is modality independent. Modality-specific Screen classes extend the `ScreenBase` class to handle loading of different data types.
 """
 from maps.loaders import OperettaLoader
-from maps.processing import *
-from maps.analyses import *
 from maps.screen_utils import categorize
+import polars as pl
+import numpy as np
+import importlib
 
 class ScreenBase():
     "Base class for processing data from a screen"
     def __init__(self, params, loader):
         self.params = params
         self.loader = loader(params)
-        self.data = None
-        self.metadata = None
+        self.data = pl.DataFrame()
+        self.metadata = pl.DataFrame()
     
     def get_response(self, encode_categorical=True):
         "Generate vector of response values as specified by analysis.MAP.response key of screen params."    
@@ -46,36 +47,25 @@ class ScreenBase():
             
     def _run(self, fun, args):
         "Generic function runner"
-        return eval(fun)(self, **args)
+        return fun(self, **args)
         
     def preprocess(self):
         "Run all data processing steps as specified in the preprocessing key of screen params."
         assert self.data is not None
         assert self.metadata is not None
-                
+        processing = importlib.import_module("maps.processing")
+        
         for f, v in self.params.get("preprocess").items():
-            self = self._run(f, v)
+            self = self._run(getattr(processing, f), v)
             
         self.preprocessed = True
-        
-    def _eda(self):
-        "Run eda modules specified in params"
-        pass
-    
-    def run_analysis(self):
-        "Run analysis modules specified in the analysis key of screen params."
-        analyses = {}
-        for analysis in self.params.get("analysis"):
-            analyses[analysis] = eval(analysis)(self)
-            analyses[analysis]._run()
         
 
 class ImageScreen(ScreenBase):
     def __init__(self, params):
         super().__init__(params, OperettaLoader)
-        self.data = None
-        self.metadata = None
         self.preprocessed = False
+        self.loaded = False
          
     def load(self, antibody=None):
         "Load selected antibody data"
@@ -85,14 +75,12 @@ class ImageScreen(ScreenBase):
         dfmeta, df = self.loader.load_data(antibody=antibody)
         self.data = df
         self.metadata = dfmeta
-
+        self.loaded = True
 
 class ImageScreenMultiAntibody(ScreenBase):
     "Screen class for multimodal data"
     def __init__(self, params):
         super().__init__(params, OperettaLoader)
-        self.data = None
-        self.metadata = None
         self.preprocessed = False
         
     def load(self, antibody=None):
@@ -110,7 +98,9 @@ class ImageScreenMultiAntibody(ScreenBase):
         
         for ab in antibodies:
             self.metadata[ab] = dfmeta.filter(pl.col("Antibody") == ab)
-            self.data[ab] = df.filter(pl.col("ID").is_in(self.metadata[ab]["ID"]))
+            self.data[ab] = df.filter(
+                pl.col("ID").is_in(self.metadata[ab]["ID"])
+            )
 
     def preprocess(self):
         "Run preprocessing steps for each multimodal dataset"
@@ -119,12 +109,14 @@ class ImageScreenMultiAntibody(ScreenBase):
         
         df_multimodal = self.data.copy()
         dfmeta_multimodal = self.metadata.copy()
+        processing = importlib.import_module("maps.processing")
         
         for ab in df_multimodal:
             self.data, self.metadata = df_multimodal[ab], dfmeta_multimodal[ab]
     
             for f, v in self.params.get("preprocess").items():
-                self = self._run(f, v)
+                self = self._run(getattr(processing, f), v)
+
             
             df_multimodal[ab], dfmeta_multimodal[ab] = self.data, self.metadata
             

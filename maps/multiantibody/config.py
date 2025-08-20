@@ -29,6 +29,7 @@ class DataLoaderConfig:
     n_cells: int = 50
     shuffle: bool = True
     mode: str = "train"
+    scale: bool = True
     response_map: dict = field(
-        default_factory=lambda: {"WT": 0, "FUS": 1}
+        default_factory=lambda: {"WT": 0, "FUS": 1, "SOD1": 2, "C9orf72": 3}
     )
