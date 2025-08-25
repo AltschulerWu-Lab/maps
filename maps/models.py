@@ -223,12 +223,12 @@ class MultiAntibody(PyTorchModel):
         else:
             kwargs = {"train": TrainConfig(), "model": ModelConfig()}
 
-        model_config = kwargs.get("model", ModelConfig())
+        model_config = ModelConfig(**kwargs.get("model", {}))
         model_config.antibody_feature_dims = data_loader._get_feature_dims() 
         self.model = MultiAntibodyClassifier(**vars(model_config))
 
         # Train model 
-        train_config = kwargs.get("train", TrainConfig())
+        train_config = TrainConfig(**kwargs.get("train", {}))
         train(self.model, data_loader, train_config)
         self.fitted = True
 

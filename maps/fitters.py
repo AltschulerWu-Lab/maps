@@ -138,9 +138,7 @@ def leave_one_out_pytorch(
     assert map_params is not None, "MAP parameters not found"
     
     # Set configs for batch loading 
-    dataloader_config = map_params.get("data_loader", None)
-    if dataloader_config is None:
-        dataloader_config = DataLoaderConfig()
+    dataloader_config = DataLoaderConfig(**map_params.get("data_loader", {}))
 
     # Initialize training set of cell lines
     cell_lines = [s["CellLines"].unique() for s in screen.metadata.values()]
@@ -202,7 +200,7 @@ def leave_one_out_pytorch(
     # Combine results as in leave_one_out
     out = {
         "fitted": fitted,
-        "predicted": pl.concat(predicted),
+        "predicted": pl.DataFrame(pd.concat(predicted)),
         "importance": None 
     }
     return out

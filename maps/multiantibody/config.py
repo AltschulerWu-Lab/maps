@@ -13,6 +13,7 @@ class TrainConfig:
     verbose: bool = True
     log: bool = True
     patience: int = 5
+    use_contrastive_loss: bool = False
 
 @dataclass
 class ModelConfig:

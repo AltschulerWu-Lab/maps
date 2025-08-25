@@ -36,8 +36,12 @@
     "analysis": {
         "MAP": {
             "model": {
-                "MultiAntibody": {}
+                "MultiAntibody": {
+                    "model":{"n_classes": 4},
+                    "train":{"verbose":false}
+                }
             },
+            "data_loader":{},
             "seed": 47,
             "response": "Mutations",
             "fitter":  "leave_one_out"

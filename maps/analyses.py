@@ -52,7 +52,7 @@ class MAP():
         self.params = analysis_params.get("MAP")
         
         model = list(self.params.get("model").keys())[0]
-        self.model = eval(model)(self.params)
+        self.model = eval(model)(**self.params)
         
         self.fitter = self.params.get("fitter")
         self.screen = screen

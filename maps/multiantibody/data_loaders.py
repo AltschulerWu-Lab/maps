@@ -29,9 +29,9 @@ class ImagingDataset(Dataset):
         data: pl.DataFrame, 
         metadata: pl.DataFrame,
         antibody: str,
-        response: str = "Mutations",
+        response: str | List[str] = "Mutations",
         grouping: str = "CellLines", 
-        response_map: Optional[Dict[str, int]] = None,
+        response_map: Optional[Dict[str, Dict[Any, int]]] = None,
         n_cells: int = 10,
         seed: Optional[int] = None,
         scale: bool = False,
@@ -48,6 +48,9 @@ class ImagingDataset(Dataset):
             n_cells: Number of samples to sample per group
             seed: Random seed for reproducible sampling
         """
+        if isinstance(response, str):
+            response = [response]
+        
         self.data = data
         self.metadata = metadata
         self.response = response
@@ -65,20 +68,34 @@ class ImagingDataset(Dataset):
 
         # Prepare the dataset
         self._prepare_data()
+    
+    def _make_response_map(self, resp_col: str) -> Dict[Any, int]:
+        unique_vals = self.metadata[resp_col].unique()
+        mapping = {v: i for i, v in enumerate(unique_vals)}
+        return mapping
         
     def _prepare_data(self):
-        # Map response strings to numeric labels
+        # Map response values to integers, defaulting to provided key but
+        # generate new keys when not provided.
+        response_cols = self.response
+        label_data = {}
         if self.response_map is None:
-            response_values = self.metadata[self.response].unique()
-            self.response_map = {
-                resp: i for i, resp in enumerate(response_values)
-            }
-        self.metadata = self.metadata.with_columns(
-            pl.col(self.response).replace(self.response_map).alias("Label")
-        )
-        self.metadata = self.metadata.with_columns(
-            pl.col("Label").cast(pl.Int64)
-        )
+            self.response_map = {}
+        for resp_col in response_cols:
+            if resp_col in self.response_map and self.response_map[resp_col] is not None:
+                mapping = self.response_map[resp_col]
+            else:
+                mapping = self._make_response_map(resp_col)
+                self.response_map[resp_col] = mapping
+            
+            # Create new integer labels without modifying original metadata
+            original_values = self.metadata.select(resp_col).to_series()
+            mapped_values = original_values.replace(mapping).cast(pl.Int64)
+            label_data[resp_col] = mapped_values
+        
+        # Create labels as a Polars DataFrame
+        self.labels = pl.DataFrame(label_data)
+        
         # Scale numeric columns if requested
         if self.scale:
             # Identify numeric columns (excluding 'ID')
@@ -87,17 +104,14 @@ class ImagingDataset(Dataset):
                             zip(self.data.columns, self.data.dtypes)
                             if col != "ID" and dtype in numeric_dtype
             ]
-            
             if self.scaler is not None:
                 if not hasattr(self.scaler, 'transform'):
                     raise ValueError(
                         "Provided scaler does not have a 'transform' method."
                     )
-                
                 scaled = self.scaler.transform(
                     self.data.select(numeric_cols).to_numpy()
                 )
-                
                 self.data = self.data.with_columns([
                     pl.Series(col, scaled[:, i]) 
                     for i, col in enumerate(numeric_cols)
@@ -107,7 +121,6 @@ class ImagingDataset(Dataset):
                 scaled = self.scaler.fit_transform(
                     self.data.select(numeric_cols).to_numpy()
                 )
-                
                 self.data = self.data.with_columns([
                     pl.Series(col, scaled[:, i])
                     for i, col in enumerate(numeric_cols)
@@ -132,9 +145,19 @@ class ImagingDataset(Dataset):
         return x_sampled, feature_groups
 
     def _get_response(self, group: str):
-        """Get response label for a specific antibody at a given index."""
-        y = self.metadata.filter(pl.col(self.grouping) == group)["Label"]
-        return torch.tensor(y.to_numpy()[0], dtype=torch.long)
+        """Get response label(s) for a specific antibody at a given index."""
+        response_cols = self.response
+        # Find the row index for this group in metadata
+        group_idx = self.metadata.filter(pl.col(self.grouping) == group).select(pl.int_range(pl.len())).to_series()[0]
+        
+        if len(response_cols) == 1:
+            y = self.labels[response_cols[0]][group_idx]
+            return torch.tensor(y, dtype=torch.long)
+        else:
+            ys = []
+            for resp_col in response_cols:
+                ys.append(self.labels[resp_col][group_idx])
+            return torch.tensor(ys, dtype=torch.long)
         
     def __len__(self):
         """Return the length of the dataset."""
@@ -372,35 +395,38 @@ if __name__ == "__main__":
     
     # Load parameters
     pdir = "/home/kkumbier/als/scripts/maps/template_analyses/params/"
-    with open(pdir + "params_multimodal.json", "r") as f:
+    with open(pdir + "maps_multiantibody-test.json", "r") as f:
         params = json.load(f)
     
     # Create and load screen
     screen = ImageScreenMultiAntibody(params)
-    if screen.data is not None and screen.metadata is not None:
-        screen.load(antibody=["FUS/EEA1"])
-        screen.preprocess()
+    screen.load(antibody=["FUS/EEA1"])
+    screen.preprocess()
 
-        dataset = ImagingDataset(
-            data=screen.data["FUS/EEA1"],
-            metadata=screen.metadata["FUS/EEA1"],
-            antibody="FUS/EEA1",
-            response="Mutations",
-            grouping="CellLines",
-            n_cells=10
-        )
-        
-        # Example with scalers dictionary
-        scalers_dict = {"FUS/EEA1": StandardScaler()}
-        dataloader = create_multiantibody_dataloader(
-            screen, 
-            scale=True, 
-            scalers=scalers_dict
-        )
+    dataset = ImagingDataset(
+        data=screen.data["FUS/EEA1"],
+        metadata=screen.metadata["FUS/EEA1"],
+        antibody="FUS/EEA1",
+        response=["Mutations", "CellLines"],
+        grouping="CellLines",
+        n_cells=10
+    )
+    
+    # Get a sample group from the dataset to test
+    sample_group = dataset.metadata[dataset.grouping].unique()[0]
+    batch = dataset.__getitem__(sample_group)
+    
+    # Example with scalers dictionary
+    scalers_dict = {"FUS/EEA1": StandardScaler()}
+    dataloader = create_multiantibody_dataloader(
+        screen, 
+        scale=True, 
+        scalers=scalers_dict
+    )
 
-        batch = dataloader.__next__()
-        if batch is not None:
-            keys = list(batch.keys())
-            print(batch[keys[0]][1])
-            if len(keys) > 1:
-                print(batch[keys[1]][1])
+    batch = dataloader.__next__()
+    if batch is not None:
+        keys = list(batch.keys())
+        print(batch[keys[0]][1])
+        if len(keys) > 1:
+            print(batch[keys[1]][1])

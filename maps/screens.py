@@ -71,7 +71,10 @@ class ImageScreen(ScreenBase):
         "Load selected antibody data"
         if antibody is None:
            antibody = self.params.get("antibody") 
-           
+
+        if isinstance(antibody, list):
+            raise ValueError("Use `ImageScreenMultiAntibody` to handle multi antibody analysis")
+         
         dfmeta, df = self.loader.load_data(antibody=antibody)
         self.data = df
         self.metadata = dfmeta
