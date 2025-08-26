@@ -15,9 +15,7 @@
             "select_key": [
                 {"Drugs": ["DMSO"], 
                 "Mutations": ["FUS", "WT"],
-                "CellLines": [
-                    "NS007", "NS045", "NS036", "GIH91", "FTD73", "ALS45"
-                ]
+                "CellLines": ["NS034", "NS002", "NS045", "GIH-130", "SS2032", "NS030", "ND39027", "NS044", "GIH91", "CRL-2201", "FTD73", "11", "GIH158", "ALS15", "FTD75", "FTD37"]
                 }
             ]
         },

@@ -284,7 +284,16 @@ if __name__ == "__main__":
     # Grid search parameters
     n_layers_values = [0, 1, 2]
     d_model_values = [8, 16, 32]
-    n_replicates = 100
+    n_replicates = 10
+    
+    grid = {
+        "n_layers": 0,
+        "n_layers": 1,
+        "n_layers": 2,
+        "d_model": 8,
+        "d_model": 16
+    
+    }
         
     all_results, all_predictions = [], []
     

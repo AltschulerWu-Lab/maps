@@ -75,8 +75,7 @@ class ImagingDataset(Dataset):
         return mapping
         
     def _prepare_data(self):
-        # Map response values to integers, defaulting to provided key but
-        # generate new keys when not provided.
+        # Map response values to integers, defaulting to provided key
         response_cols = self.response
         label_data = {}
         if self.response_map is None:
@@ -147,8 +146,15 @@ class ImagingDataset(Dataset):
     def _get_response(self, group: str):
         """Get response label(s) for a specific antibody at a given index."""
         response_cols = self.response
-        # Find the row index for this group in metadata
-        group_idx = self.metadata.filter(pl.col(self.grouping) == group).select(pl.int_range(pl.len())).to_series()[0]
+        
+        # Find the row indices where the grouping column equals the group value
+        mask = self.metadata[self.grouping] == group
+        group_indices = mask.arg_true()
+        
+        if len(group_indices) == 0:
+            raise ValueError(f"No rows found for group '{group}' in column '{self.grouping}'")
+        
+        group_idx = group_indices[0]
         
         if len(response_cols) == 1:
             y = self.labels[response_cols[0]][group_idx]

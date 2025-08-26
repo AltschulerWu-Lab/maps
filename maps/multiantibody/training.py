@@ -33,6 +33,9 @@ def train(
         elif param.requires_grad and id(param) in line_param_ids:
             line_params.append(param)
     
+    # Scheduler step interval (default 10)
+    scheduler_step = getattr(config, 'scheduler_step', 10)
+
     # Create optimizers - will be updated as parameters are frozen
     def create_cell_optimizer():
         """Create optimizer for currently trainable cell parameters"""
@@ -50,7 +53,7 @@ def train(
                 weight_decay=config.weight_decay
             )
         return None
-    
+
     optimizer_cell = create_cell_optimizer()
     optimizer_line = optim.Adam(
         line_params,
@@ -58,6 +61,12 @@ def train(
         betas=config.betas,
         weight_decay=config.weight_decay
     )
+
+    # Learning rate schedulers
+    scheduler_cell = None
+    if optimizer_cell is not None:
+        scheduler_cell = optim.lr_scheduler.StepLR(optimizer_cell, step_size=scheduler_step, gamma=0.5)
+    scheduler_line = optim.lr_scheduler.StepLR(optimizer_line, step_size=scheduler_step, gamma=0.5)
 
     criterion_cell = nn.CrossEntropyLoss()
     criterion_line = nn.CrossEntropyLoss()
@@ -74,6 +83,7 @@ def train(
     best_loss_per_ab = {ab: float('inf') for ab in model.antibodies}
     epochs_no_improve_per_ab = {ab: 0 for ab in model.antibodies}
     frozen_antibodies = set()
+    active_antibodies = set(model.antibodies) 
     
     model.train()
     for epoch in range(config.n_epochs):
@@ -95,24 +105,21 @@ def train(
             y_dict = {ab: batch[ab][1].to(device) for ab in batch}
             
             # Forward pass
-            cell_logits, _, cell_emb, _ = model(x_dict, return_embeddings=True)
+            cell_logits, _, cell_emb, _ = model(x_dict, return_embedding=True)
 
             # Compute cell-level loss for each antibody
             loss_cell = torch.tensor(0.0, device=device, requires_grad=True)
-            active_antibodies = [ab for ab in cell_logits if ab not in frozen_antibodies]
+            active_antibodies = active_antibodies - frozen_antibodies
             
-            for ab in cell_logits:
+            for ab in active_antibodies:
                 logits = cell_logits[ab]
-                y = y_dict[ab]
-                y = y.unsqueeze(1).expand(-1, logits.shape[1]).reshape(-1)
                 logits_flat = logits.reshape(-1, logits.shape[-1])
 
+                y = y_dict[ab]
+                y = y.unsqueeze(1).expand(-1, logits.shape[1]).reshape(-1)
+
                 ab_loss = criterion_cell(logits_flat, y)
-                
-                # Only include loss from non-frozen antibodies in backprop
-                if ab not in frozen_antibodies and len(active_antibodies) > 0:
-                    loss_cell = loss_cell + ab_loss / len(active_antibodies)
-                
+                loss_cell = loss_cell + ab_loss / len(active_antibodies)
                 total_loss_cell_ab[ab] += ab_loss.item()
                 
                 # Compute accuracy for this antibody
@@ -164,9 +171,11 @@ def train(
                 if config.verbose:
                     print(f"  Freezing {ab} encoder at epoch {epoch+1}")
 
-        # Recreate optimizer if any antibodies were frozen
+        # Recreate optimizer and scheduler if any antibodies were frozen
         if newly_frozen:
             optimizer_cell = create_cell_optimizer()
+            if optimizer_cell is not None:
+                scheduler_cell = optim.lr_scheduler.StepLR(optimizer_cell, step_size=scheduler_step, gamma=0.5)
 
         # Logging
         if config.verbose:
@@ -188,6 +197,10 @@ def train(
                 log_dict[f"frozen_{ab}"] = 1 if ab in frozen_antibodies else 0
             log_dict["active_antibodies"] = len(model.antibodies) - len(frozen_antibodies)
             wandb.log(log_dict)
+
+        # Step the learning rate scheduler
+        if scheduler_cell is not None:
+            scheduler_cell.step()
 
         # Stop cell training if all antibodies are frozen
         if len(frozen_antibodies) == len(model.antibodies):
@@ -244,13 +257,13 @@ def train(
             # Line-level loss
             y_line = y_dict[list(batch.keys())[0]]
             loss_line = criterion_line(line_logits, y_line)
-            loss_line = loss_line + model.group_entropy_penalty()
+            #loss_line = loss_line + model.group_entropy_penalty()
 
             # Add L2 penalty weighted by cell accuracy
-            l2_penalty = model.l2_by_antibody()
-            for ab in l2_penalty:
-                lambda_l2 = (1 - total_acc_cell_ab[ab]) * 2
-                loss_line += l2_penalty[ab] * lambda_l2
+            #l2_penalty = model.l2_by_antibody()
+            #for ab in l2_penalty:
+            #    lambda_l2 = (1 - total_acc_cell_ab[ab]) * 2
+            #    loss_line += l2_penalty[ab] * lambda_l2
             
             total_loss_line += loss_line.item()
 
@@ -271,6 +284,9 @@ def train(
 
         if config.log and wandb.run is not None:
             wandb.log({"loss_line": total_loss_line})
+
+        # Step the learning rate scheduler
+        scheduler_line.step()
 
         # Early stopping check for line training
         if total_loss_line < best_line_loss - min_delta:

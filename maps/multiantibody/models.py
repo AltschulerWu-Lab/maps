@@ -12,9 +12,10 @@ class AntibodyEncoder(nn.Module):
                 linear = nn.Linear(
                     in_features if len(layers)==0 else d_model, d_model
                 )
-
                 layers.append(linear)
                 layers.append(nn.ReLU())
+                layers.append(nn.LayerNorm(d_model))
+                layers.append(nn.Dropout(0.3))
             self.encoder = nn.Sequential(*layers)
         else:
             self.encoder = nn.Identity()
