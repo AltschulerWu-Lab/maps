@@ -51,6 +51,9 @@ class ImagingDataset(Dataset):
         if isinstance(response, str):
             response = [response]
         
+        # Validation checks
+        self._validate_inputs(response, response_map, metadata)
+        
         self.data = data
         self.metadata = metadata
         self.response = response
@@ -69,8 +72,30 @@ class ImagingDataset(Dataset):
         # Prepare the dataset
         self._prepare_data()
     
+    def _validate_inputs(self, response: List[str], response_map: Optional[Dict[str, Dict[Any, int]]], metadata: pl.DataFrame):
+        """Validate input parameters for ImagingDataset initialization."""
+        # Check that all response columns exist in metadata
+        metadata_columns = set(metadata.columns)
+        for resp_col in response:
+            if resp_col not in metadata_columns:
+                raise ValueError(f"Response column '{resp_col}' not found in metadata columns: {sorted(metadata_columns)}")
+        
+        # Check that all keys of response_map are in the set of response values
+        if response_map is not None:
+            for resp_col, mapping in response_map.items():
+                if resp_col not in response:
+                    raise ValueError(f"Response map key '{resp_col}' not found in response list: {response}")
+                
+                # Get unique values from the metadata for this response column
+                unique_response_values = set(metadata[resp_col].unique().to_list())
+                
+                # Check that all keys in the mapping exist as response values
+                for map_key in mapping.keys():
+                    if map_key not in unique_response_values:
+                        raise ValueError(f"Response map key '{map_key}' for column '{resp_col}' not found in metadata values: {sorted(unique_response_values)}")
+    
     def _make_response_map(self, resp_col: str) -> Dict[Any, int]:
-        unique_vals = self.metadata[resp_col].unique()
+        unique_vals = sorted(self.metadata[resp_col].unique())  # Sort to ensure deterministic order
         mapping = {v: i for i, v in enumerate(unique_vals)}
         return mapping
         
@@ -364,7 +389,7 @@ def create_multiantibody_dataloader(
     # Initialize response key
     if response_map is None:
         merged_meta = pl.concat([s for s in screen.metadata.values()])
-        response_values = merged_meta[response].unique()
+        response_values = sorted(merged_meta[response].unique())  # Sort to ensure deterministic order
         response_map = {resp: i for i, resp in enumerate(response_values)}
             
     for antibody in screen.data.keys():

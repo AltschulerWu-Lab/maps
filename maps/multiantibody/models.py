@@ -137,13 +137,10 @@ class MultiAntibodyClassifier(nn.Module):
             if ab not in cell_emb:
                 continue
                 
+            # Normalize embeddings for cosine similarity
             emb = cell_emb[ab]  # (n_cell_lines, n_cells, d_model)
             n_cell_lines, n_cells, d_model = emb.shape
-            
-            # Reshape to (n_cell_lines * n_cells, d_model)
-            emb_flat = emb.view(-1, d_model)
-            
-            # Normalize embeddings for cosine similarity
+            emb_flat = emb.reshape(-1, d_model)
             emb_norm = F.normalize(emb_flat, p=2, dim=1)
             
             # Compute similarity matrix
@@ -154,6 +151,7 @@ class MultiAntibodyClassifier(nn.Module):
             
             # Create mask for positive pairs (same cell line, different cells)
             mask = labels.unsqueeze(0) == labels.unsqueeze(1)
+            
             # Remove self-similarity (diagonal)
             mask = mask & ~torch.eye(len(labels), dtype=torch.bool, device=emb.device)
             
@@ -189,39 +187,6 @@ class MultiAntibodyClassifier(nn.Module):
         
         return total_loss
 
-    def group_entropy_penalty(self):
-        """Compute entropy penalty for final linear head, grouped by antibody"""
-        import torch.nn.functional as F
-        W = self.line_head.fc.weight  # shape: [n_classes, d_model * n_antibodies]
-
-        # Compute l2 norm of weights by antibody
-        group_norms = []
-        d_model = W.shape[1] // len(self.antibodies)
-        for i in range(len(self.antibodies)):
-            group_W = W[:, i*d_model:(i+1)*d_model]
-            norm = torch.norm(group_W, p=2)
-            group_norms.append(norm)
-        
-        group_norms = torch.stack(group_norms)  # shape: [n_antibodies]
-        weights = F.softmax(group_norms, dim=0)
-        entropy = -torch.sum(weights * torch.log(weights + 1e-8))
-        
-        return self.lambda_entropy * entropy
-    
-    def l2_by_antibody(self):
-        """Compute L2 norm of line head parameters grouped by antibody"""
-        W = self.line_head.fc.weight  # shape: [n_classes, d_model * n_antibodies]
-        
-        # Group weights by antibody and compute L2 norm
-        l2_norms = {}
-        d_model = W.shape[1] // len(self.antibodies)
-        for i, ab in enumerate(self.antibodies):
-            group_W = W[:, i*d_model:(i+1)*d_model]
-            l2_norm = torch.norm(group_W, p=2)
-            l2_norms[ab] = l2_norm
-        
-        return l2_norms
-    
     def predict_entropy_weighted(self, x=None, cell_logits=None):
         """
         Compute entropy-weighted predictions from cell logits or input x

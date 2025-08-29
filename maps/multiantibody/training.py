@@ -3,10 +3,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from maps.multiantibody.config import TrainConfig
+from maps.multiantibody.models import MultiAntibodyClassifier
 import wandb
 
 def train(
-    model: nn.Module, 
+    model: MultiAntibodyClassifier, 
     dataloader: DataLoader, 
     config: TrainConfig = TrainConfig()
 ):
@@ -66,6 +67,7 @@ def train(
     scheduler_cell = None
     if optimizer_cell is not None:
         scheduler_cell = optim.lr_scheduler.StepLR(optimizer_cell, step_size=scheduler_step, gamma=0.5)
+    
     scheduler_line = optim.lr_scheduler.StepLR(optimizer_line, step_size=scheduler_step, gamma=0.5)
 
     criterion_cell = nn.CrossEntropyLoss()
@@ -127,14 +129,18 @@ def train(
                 acc = (preds == y).float().mean()
                 total_acc_cell_ab[ab] += acc.item()
 
+            # Add contrastive loss enforcing cell line similarity
             if config.use_contrastive_loss:
                 loss_contrastive = model.contrastive_loss_cell_lines(cell_emb)
                 loss_cell += loss_contrastive
 
+            total_loss_cell += loss_cell.item()
+            
             # Backward pass and optimization (only for non-frozen antibodies)
             if len(active_antibodies) > 0 and optimizer_cell is not None:
                 loss_cell.backward()
                 optimizer_cell.step()
+            
             n_batches += 1
 
         # Average losses and accuracies over batches
@@ -257,14 +263,6 @@ def train(
             # Line-level loss
             y_line = y_dict[list(batch.keys())[0]]
             loss_line = criterion_line(line_logits, y_line)
-            #loss_line = loss_line + model.group_entropy_penalty()
-
-            # Add L2 penalty weighted by cell accuracy
-            #l2_penalty = model.l2_by_antibody()
-            #for ab in l2_penalty:
-            #    lambda_l2 = (1 - total_acc_cell_ab[ab]) * 2
-            #    loss_line += l2_penalty[ab] * lambda_l2
-            
             total_loss_line += loss_line.item()
 
             # Backward pass and optimization
