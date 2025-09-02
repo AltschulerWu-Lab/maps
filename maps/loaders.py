@@ -89,8 +89,12 @@ class OperettaLoader():
         df_group = df.group_by("ID").len().rename({"len": "NCells"})
         dfmeta = dfmeta.filter(pl.col("ID").is_in(df_group["ID"]))
         dfmeta = dfmeta.join(df_group, on="ID")
-        
-        return dfmeta, df 
+
+        # Add screen information
+        dfmeta = dfmeta.with_columns(
+            pl.col("ID").str.split_exact("-", 1).struct.field("field_0").alias("Screen"))
+                
+        return dfmeta, df
 
 
     def list_antibodies(self, plate_ids=None):
@@ -284,3 +288,4 @@ if __name__ == "__main__":
         
     self = OperettaLoader(params)
     dfmeta, df = self.load_data(antibody="FUS/EEA1")
+    print('Data loaded successfully')
