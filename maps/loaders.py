@@ -68,7 +68,6 @@ class OperettaLoader():
         ) 
         
         return df   
-
  
     def load_data(self, antibody=None):
         "Wrapper function to load data/metadata and clean antibody names"
@@ -93,7 +92,17 @@ class OperettaLoader():
         # Add screen information
         dfmeta = dfmeta.with_columns(
             pl.col("ID").str.split_exact("-", 1).struct.field("field_0").alias("Screen"))
-                
+        
+        # Only keep columns common to all screens
+        ## df case
+        df = df.select(
+            [col for col in df.columns if df.select(pl.col(col).is_null().sum()).item() < len(df)]
+        )
+        ## dfmeta case
+        dfmeta = dfmeta.select(
+            [col for col in dfmeta.columns if dfmeta.select(pl.col(col).is_null().sum()).item() < len(dfmeta)]
+        )
+        
         return dfmeta, df
 
 
