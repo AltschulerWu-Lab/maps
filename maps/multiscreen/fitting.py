@@ -15,21 +15,22 @@ from maps.multiscreen.data_loaders import ImagingDatasetMultiscreen
 
 class DataTransformer:
     def __init__(self, aligner_class=DANNAligner,
-                 learning_rate=0.001, n_epochs=100, device='cuda', 
-                 alpha_schedule='progressive', lambda_domain=1.0, lambda_label=1.0):
+                 fit_config: FitConfig = FitConfig()):
         
-        self.learning_rate = learning_rate
-        self.n_epochs = n_epochs
-        self.alpha_schedule = alpha_schedule
-        self.lambda_domain = lambda_domain
-        self.lambda_label = lambda_label
+        
+        self.learning_rate = fit_config.learning_rate
+        self.n_epochs = fit_config.n_epochs
+        self.alpha_schedule = fit_config.alpha_schedule
+        self.lambda_domain = fit_config.lambda_domain
+        self.lambda_label = fit_config.lambda_label
+        self.device = fit_config.device
+
+        self.aligner_class = aligner_class
+        self.aligner_ = None
         self.fitted_ = False
         self.feature_columns_ = None
         self.domain_encoding_ = None
         self.label_encoding_ = None
-        self.aligner_class = aligner_class
-        self.aligner_ = None
-        self.device = torch.device(device if device != 'auto' else ('cuda' if torch.cuda.is_available() else 'cpu'))
 
     def _get_alpha(self, epoch: int) -> float:
         """Get alpha value for gradient reversal based on schedule."""
@@ -52,8 +53,7 @@ class DataTransformer:
         
     def fit(self, df, metadf,
             dataloader_config: DataLoaderConfig = DataLoaderConfig(),
-            aligner_config: AlignerConfig = AlignerConfig(), 
-            fit_config: FitConfig = FitConfig()):
+            aligner_config: AlignerConfig = AlignerConfig()):
         # Prepare dataset and dataloader
         dataset = ImagingDatasetMultiscreen(df, metadf, response=dataloader_config.response, 
                                                         response_map=dataloader_config.response_map)
@@ -86,7 +86,7 @@ class DataTransformer:
         # Check if aligner has trainable parameters
         params = list(self.aligner_.parameters())
         if params:
-            optimizer = optim.Adam(params, lr=fit_config.learning_rate)
+            optimizer = optim.Adam(params, lr=self.learning_rate)
         else:
             optimizer = None  # No optimizer needed for parameter-free aligners
         domain_criterion = nn.CrossEntropyLoss()
@@ -134,8 +134,7 @@ class DataTransformer:
 
     def transform(self, new_df, new_metadf,             
                   dataloader_config: DataLoaderConfig = DataLoaderConfig(),
-                  aligner_config: AlignerConfig = AlignerConfig(), 
-                  fit_config: FitConfig = FitConfig()):
+                  aligner_config: AlignerConfig = AlignerConfig()):
 
         assert self.fitted_, "Model must be fitted before transform."
 
@@ -170,7 +169,6 @@ class DataTransformer:
     
     def fit_transform(self, df, metadf,
                       dataloader_config: DataLoaderConfig = DataLoaderConfig(),
-                      aligner_config: AlignerConfig = AlignerConfig(), 
-                      fit_config: FitConfig = FitConfig()):
-        self.fit(df, metadf, dataloader_config, aligner_config, fit_config)
-        return self.transform(df, metadf, dataloader_config, aligner_config, fit_config)
+                      aligner_config: AlignerConfig = AlignerConfig()):
+        self.fit(df, metadf, dataloader_config, aligner_config)
+        return self.transform(df, metadf, dataloader_config, aligner_config)
