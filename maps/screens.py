@@ -127,6 +127,8 @@ class ImageScreenMultiAntibody(ScreenBase):
         self.metadata = dfmeta_multimodal
         self.preprocessed = True
         
+        print("Preprocessing complete")
+        
     def get_response(self, encode_categorical=True):
         "Generate vector of response values as specified by analysis.MAP.response key of screen params."    
         
@@ -169,6 +171,6 @@ if __name__ == "__main__":
     screen.preprocess()
     screen.run_analysis()
     
-    mscreen = ImageScreenAntibody(params)
+    mscreen = ImageScreenMultiAntibody(params)
     mscreen.load(antibody=["FUS/EEA1", "COX IV/Galectin3/atubulin"])
     mscreen.preprocess()
