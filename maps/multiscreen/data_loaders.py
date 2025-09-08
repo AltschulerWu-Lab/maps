@@ -14,17 +14,13 @@ class ImagingDatasetMultiscreen(Dataset):
         self,
         df: pl.DataFrame,
         metadf: pl.DataFrame,
-        response: str | List[str] = "CellLines",
-        response_map: dict = field(default_factory=lambda: {
-            "Mutations": {"WT": 0, "FUS": 1, "SOD1": 2, "C9orf72": 3}
-        }),
+        response: str,
+        response_map: dict,
         feature_scaler_mean=None,
         feature_scaler_std=None,
         domain_encoding=None,
         label_encoding=None
     ):
-        if isinstance(response, str):
-            response = [response]
         
         # Validation checks
         self._validate_inputs(response, response_map, metadf)
@@ -57,29 +53,27 @@ class ImagingDatasetMultiscreen(Dataset):
         self.features, self.domains, self.labels = self._prepare_training_data()
         self.features = self._normalize_features(self.features)
         
-    def _validate_inputs(self, response: List[str], 
+    def _validate_inputs(self, response: str, 
                          response_map: Optional[Dict[str, Dict[Any, int]]], 
                          metadf: pl.DataFrame):
         """Validate input parameters for ImagingDataset initialization."""
         # Check that all response columns exist in metadata
         metadata_columns = set(metadf.columns)
-        for resp_col in response:
-            if resp_col not in metadata_columns:
-                raise ValueError(f"Response column '{resp_col}' not found in metadata columns: {sorted(metadata_columns)}")
-        
-        # Check that all keys of response_map are in the set of response values
-        if response_map is not None:
-            for resp_col, mapping in response_map.items():
-                if resp_col not in response:
-                    raise ValueError(f"Response map key '{resp_col}' not found in response list: {response}")
-                
-                # Get unique values from the metadata for this response column
-                unique_response_values = set(metadf[resp_col].unique().to_list())
+        if response not in metadata_columns:
+            raise ValueError(f"Response column '{response}' not found in metadata columns: {sorted(metadata_columns)}")
 
-                # Check that all keys in the mapping exist as response values
-                for map_key in mapping.keys():
+        # Check that all keys of response_map are in the response list
+        if response_map is not None:
+            # Get unique values from the metadata for this response column
+            unique_response_values = set(metadf[response].unique().to_list())
+
+            # Check that all keys in the mapping exist as response values if the response supplied is in response_map
+            if response in response_map:
+                for map_key in response_map[response].keys():
                     if map_key not in unique_response_values:
-                        raise ValueError(f"Response map key '{map_key}' for column '{resp_col}' not found in metadata values: {sorted(unique_response_values)}")
+                        raise ValueError(
+                            f"Response map key '{map_key}' for column '{response}' not found in metadata values: {sorted(unique_response_values)}"
+                        )
     
     def _merge_metadata_with_data(self):
         """Merge metadata with main dataframe on 'ID'."""
