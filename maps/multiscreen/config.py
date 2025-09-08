@@ -6,7 +6,6 @@ class FitConfig:
     device: str = "cuda"
     learning_rate: float = 1e-3
     alpha_schedule: str = "progressive"
-    weight_decay: float = 1e-5
     n_epochs: int = 100
     lambda_domain: float = 1.0
     lambda_label: float = 1.0
@@ -19,7 +18,7 @@ class AlignerConfig:
     
 @dataclass
 class DataLoaderConfig:
-    label_feature: str = "CellLines"
+    response: str = "CellLines"
     batch_size: int = 32
     response_map: dict = field(
         default_factory=lambda: {

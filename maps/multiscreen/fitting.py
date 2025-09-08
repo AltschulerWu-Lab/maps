@@ -55,7 +55,7 @@ class DataTransformer:
             aligner_config: AlignerConfig = AlignerConfig(), 
             fit_config: FitConfig = FitConfig()):
         # Prepare dataset and dataloader
-        dataset = ImagingDatasetMultiscreen(df, metadf, label_feature=dataloader_config.label_feature, 
+        dataset = ImagingDatasetMultiscreen(df, metadf, response=dataloader_config.response, 
                                                         response_map=dataloader_config.response_map)
         self.domain_encoding_ = dataset.domain_encoding_
         self.label_encoding_ = dataset.label_encoding_
@@ -142,7 +142,7 @@ class DataTransformer:
         # Pass stored mean and std to ImagingDatasetMultiscreen for normalization
         dataset = ImagingDatasetMultiscreen(
             new_df, new_metadf,
-            label_feature=dataloader_config.label_feature,
+            response=dataloader_config.response,
             response_map=dataloader_config.response_map,
             feature_scaler_mean=self.feature_scaler_mean_,
             feature_scaler_std=self.feature_scaler_std_,
