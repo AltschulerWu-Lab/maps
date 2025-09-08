@@ -1,6 +1,9 @@
 {
     "name": "maps_dmso", 
-    "screen": "20250216_AWALS37_Full_screen_n96",
+    "screen":["20241118_AWALS35_intermediate_screen_n72", 
+              "20250216_AWALS37_Full_screen_n96", 
+              "20250407_AWALS39_FUS-focused_screen", 
+              "20250626_AWALS45_Full_screen_n_96"],   
     "root": "/awlab/projects/2024_ALS/Experiments",
     "data_file": "Objects_Population - Nuclei Selected.txt",
     "eval_dir": "Evaluation1",
@@ -8,7 +11,14 @@
         "drop_na_features": {"na_prop": 0.1},
         "drop_sample_by_feature": {
             "drop_key": [
-                {"CellLines": ["C9014", "NS048", "NS034", "NS002", "NS045", "GIH-130", "SS2032", "NS030", "ND39027", "NS044", "GIH91", "CRL-2201", "FTD73", "11", "GIH158", "ALS15", "FTD75", "FTD37"]}
+                {"CellLines": ["C9014", "NS048", "NS030",
+                               "NS034", "NS002", "NS045", "GIH-130", "SS2032", 
+                               "ND39027", "NS044", "GIH91", "CRL-2201", "FTD73", 
+                               "#11", "11", "##11",
+                               "GIH158", "ALS15", "FTD75", "FTD37", "NS003",
+                               "ALS20", "MGH83", "NS007", "imm-NS020", "MGH69",
+                               "imm-GIH166", "SS2031", "ND29563", "ALS45"]
+                }
             ]
         },
         "select_sample_by_feature": {
@@ -30,12 +40,19 @@
         "drop_feature_types": {
             "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
         },
-        "drop_constant_features":{}
+        "drop_constant_features":{},
+        "subsample_rows_by_id": {
+            "n": 100,
+            "seed": 47
+        }
     },
     "analysis": {
         "MAP": {
             "model": {
-                "MultiAntibody": {}
+                "BinaryLogistic": {
+                    "tol": 5e-2, 
+                    "solver": "saga"
+                }
             },
             "seed": 47,
             "response": "Mutations",
