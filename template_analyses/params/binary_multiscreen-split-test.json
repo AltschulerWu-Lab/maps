@@ -12,12 +12,12 @@
         "drop_sample_by_feature": {
             "drop_key": [
                 {"CellLines": ["C9014", "NS048", "NS030",
-                               "NS034", "NS002", "NS045", "GIH-130", "SS2032", 
-                               "ND39027", "NS044", "GIH91", "CRL-2201", "FTD73", 
-                               "#11", "11", "##11",
-                               "GIH158", "ALS15", "FTD75", "FTD37", "NS003",
-                               "ALS20", "MGH83", "NS007", "imm-NS020", "MGH69",
-                               "imm-GIH166", "SS2031", "ND29563", "ALS45"]
+                               "MGH42", "MGH69", "MGH83", "MGH83", "AWL_0004_C #1",
+                               "AWL_0004_C #2", "AWL_0004_C #3", "GIH91", "CRL2201",
+                               "ALS1", "ALS18", "ALS20", "FTD73", "GIH158", "#11", "11", "##11",
+                               "ALS15", "NS045", "SS2031", "NS034", "NS046", "NS020",
+                               "NS003", "ND39027", "NS002", 
+                               "imm-GIH91", "imm-NS020", "imm-ALS15"]
                 }
             ]
         },
