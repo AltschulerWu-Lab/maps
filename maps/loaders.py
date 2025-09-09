@@ -117,6 +117,11 @@ class OperettaLoader():
             plates = [p for p in self._get_plate_dirs() if re.search(id_re, p)]
             
         dfmeta = [self.load_metadata(p) for p in plates]
+        # Keep only columns common to all platemaps
+        common_cols = set(dfmeta[0].columns)
+        for df in dfmeta[1:]:
+            common_cols &= set(df.columns)
+        dfmeta = [df.select(list(common_cols)) for df in dfmeta]
         dfmeta = pl.concat(dfmeta)
         
         return dfmeta["Antibody"].unique()
