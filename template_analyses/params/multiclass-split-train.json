@@ -8,14 +8,19 @@
         "drop_na_features": {"na_prop": 0.1},
         "drop_sample_by_feature": {
             "drop_key": [
-                {"CellLines": ["C9014", "NS048", "NS007", "NS045", "NS036", "GIH91", "FTD73", "ALS45", "C9012", "C9027", "C9031", "NS013", "NS022", "NS025"]}
+                {"CellLines": ["C9014", "NS048"]}
             ]
         },
         "select_sample_by_feature": {
             "select_key": [
                 {"Drugs": ["DMSO"], 
-                "Mutations": ["FUS", "WT", "SOD1"]
-                }
+                "Mutations": ["FUS", "WT", "SOD1"],
+                "CellLines": [
+                    "NS007", "NS045", "NS036", "NS034", "NS044",  "ND40077", "ND39027", "GIH-130",
+                    "GIH91", "FTD73", "ALS45", "ALS15", "ALS1", "ALS24", "FTD37", 
+                    "NS013", "NS022", "NS025", "NS026", "ALS33", "ALS25", "ALS30", "NS024", "NS028"
+                ]
+            }
             ]
         },
         "drop_cells_by_feature_qt": {
@@ -35,8 +40,12 @@
     "analysis": {
         "MAP": {
             "model": {
-                "MultiAntibody": {}
+                "MultiAntibody": {
+                    "model":{"n_classes": 4},
+                    "train":{"verbose":false}
+                }
             },
+            "data_loader":{},
             "seed": 47,
             "response": "Mutations",
             "fitter":  "leave_one_out"

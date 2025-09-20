@@ -14,7 +14,7 @@
         "select_sample_by_feature": {
             "select_key": [
                 {"Drugs": ["DMSO"], 
-                "Mutations": ["FUS", "WT", "SOD1", "C9orf72"],
+                "Mutations": ["FUS", "WT", "SOD1"],
                 "CellLines": ["NS007", "NS045", "NS036", "GIH91", "FTD73", "ALS45", "C9012", "C9027", "C9031", "NS013", "NS022", "NS025"]
                 }
             ]

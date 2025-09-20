@@ -414,7 +414,8 @@ def create_multiantibody_dataloader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
-            num_workers=num_workers
+            num_workers=num_workers,
+            drop_last=True
         )
     return MultiAntibodyLoader(dataloaders, shuffle=shuffle, mode=mode)
 
