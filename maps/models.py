@@ -221,6 +221,7 @@ class MultiAntibody(PyTorchModel):
         if model_params is not None and "MultiAntibody" in model_params:
             kwargs = model_params["MultiAntibody"]
         else:
+            print("No model params found for MultiAntibody, using defaults.")
             kwargs = {"train": TrainConfig(), "model": ModelConfig()}
 
         model_config = ModelConfig(**kwargs.get("model", {}))
@@ -271,7 +272,7 @@ class MultiAntibody(PyTorchModel):
         preds["CellLines"] = all_lines
         preds["True"] = all_labels.numpy()
         preds = preds.sort_values(by="Class_0", ascending=False)
-        return preds
+        return pl.DataFrame(preds)
 
     def _get_importance(self):
         # Not implemented for deep models

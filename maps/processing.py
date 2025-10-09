@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
 # --- Feature filters ---
 def drop_na_features(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Drop columns exceeding NA threshold, replace with mean otherwise. 
     
     Additional kwargs:
@@ -34,6 +36,8 @@ def drop_na_features(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 
 def drop_constant_features(x: "ScreenBase") -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Drops constant features from screen data."""    
     x.data = x.data.select([
         col for col in x.data.columns if x.data[col].n_unique() > 1
@@ -43,6 +47,8 @@ def drop_constant_features(x: "ScreenBase") -> "ScreenBase":
 
 
 def select_feature_types(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Select features by regex match. 
     
     Additional kwargs:
@@ -63,6 +69,8 @@ def select_feature_types(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 
 def drop_feature_types(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Drop features by regex match. 
     
     Additional kwargs:
@@ -83,6 +91,8 @@ def drop_feature_types(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 # --- Sample filters ---
 def select_sample_by_feature(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Filter to samples whose metadata feature matches specified value. 
     
     Additional kwargs:
@@ -100,6 +110,8 @@ def select_sample_by_feature(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 
 def drop_sample_by_feature(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Filter to samples whose metadata feature does not match specified value. 
     
     Additional kwargs:
@@ -117,6 +129,8 @@ def drop_sample_by_feature(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 
 def drop_cells_by_count(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Drop cells by applying feature quantile filtering (at quantile and 1 - quantile levels). Feature quantiles are computed by ID group. Additional kwargs:
     
         min_count (int): minimum average cell count for cell line to be kept.
@@ -146,6 +160,8 @@ def drop_cells_by_count(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 
 def drop_cells_by_feature_qt(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Drop cells by applying feature quantile filtering (at quantile and 1 - 
     quantile levels). Feature quantiles are computed by ID group. 
     
@@ -167,6 +183,8 @@ def drop_cells_by_feature_qt(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 
 def subsample_rows_by_id(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Sample n rows from each ID group in a polars DataFrame. 
     
     Additional kwargs:
@@ -191,6 +209,8 @@ def subsample_rows_by_id(x: "ScreenBase", **kwargs) -> "ScreenBase":
 
 # --- Feature transforms ---
 def pca_transform(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Performs PCA transformation on features by group (e.g., marker) and 
     maintains PCs that explain specified % variance within each group. 
     
@@ -207,6 +227,8 @@ def pca_transform(x: "ScreenBase", **kwargs) -> "ScreenBase":
     return x
 
 def group_markers(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Reformat data by grouping markers into groups specified in the
     grouping list.
     
@@ -220,6 +242,8 @@ def group_markers(x: "ScreenBase", **kwargs) -> "ScreenBase":
     return x
 
 def standardize_features(x: "ScreenBase") -> "ScreenBase":
+    assert x.data is not None, "x.data must not be None"
+    assert x.metadata is not None, "x.metadata must not be None"
     """Standardize features by removing mean and scaling to unit variance.
     
     Additional kwargs:

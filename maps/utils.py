@@ -1,6 +1,8 @@
 import pandas as pd
 import statsmodels.api as sm
 import polars as pl
+import numpy as np
+import re
 
 def group_predicted(predicted, group, score):
     "Average MAP scores by grouping variable"
@@ -36,9 +38,6 @@ def fit_size_model(df):
     X = sm.add_constant(X)
     model = sm.OLS(df['Ypred'], X).fit()
     return model, X
-
-import numpy as np
-import re
 
 def conformal_prediction_sets_core(cal_df, eval_df, quantile=0.9):
     """Generates multiclass conformal prediction sets.

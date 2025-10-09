@@ -120,14 +120,13 @@ class ImageScreenMultiAntibody(ScreenBase):
             for f, v in self.params.get("preprocess").items():
                 self = self._run(getattr(processing, f), v)
 
-            
             df_multimodal[ab], dfmeta_multimodal[ab] = self.data, self.metadata
             
         self.data = df_multimodal
         self.metadata = dfmeta_multimodal
         self.preprocessed = True
         
-        print("Preprocessing complete")
+        print("Preprocessing complete")        
         
     def get_response(self, encode_categorical=True):
         "Generate vector of response values as specified by analysis.MAP.response key of screen params."    
