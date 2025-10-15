@@ -86,13 +86,6 @@ class ImagingDataset(Dataset):
                 if resp_col not in response:
                     raise ValueError(f"Response map key '{resp_col}' not found in response list: {response}")
                 
-                # Get unique values from the metadata for this response column
-                unique_response_values = set(metadata[resp_col].unique().to_list())
-                
-                # Check that all keys in the mapping exist as response values
-                for map_key in mapping.keys():
-                    if map_key not in unique_response_values:
-                        raise ValueError(f"Response map key '{map_key}' for column '{resp_col}' not found in metadata values: {sorted(unique_response_values)}")
     
     def _make_response_map(self, resp_col: str) -> Dict[Any, int]:
         unique_vals = sorted(self.metadata[resp_col].unique())  # Sort to ensure deterministic order
@@ -362,7 +355,7 @@ def create_multiantibody_dataloader(
     screen: "ImageScreenMultiAntibody",
     response: str = "Mutations",
     grouping: str = "CellLines",
-    response_map: Optional[Dict[str, int]] = None,
+    response_map: Optional[Dict] = None,
     mode: str = "train",
     n_cells: int = 10,
     batch_size: int = 8,
@@ -420,7 +413,7 @@ def create_multiantibody_dataloader(
             metadata=filtered_metadata[antibody],
             antibody=antibody,
             response=response,
-            response_map=dataset_response_map,
+            response_map=response_map,
             grouping=grouping,
             n_cells=n_cells,
             seed=seed,
