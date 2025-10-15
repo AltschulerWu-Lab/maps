@@ -8,17 +8,19 @@
         "drop_na_features": {"na_prop": 0.1},
         "drop_sample_by_feature": {
             "drop_key": [
-                {"CellLines": ["C9014", "NS048"]}
+                {"CellLines": ["C9014", "NS048"]
+            }
             ]
         },
         "select_sample_by_feature": {
             "select_key": [
                 {"Drugs": ["DMSO"], 
-                "Mutations": ["FUS", "WT", "SOD1"],
+                "Mutations": ["FUS", "WT", "SOD1", "C9orf72"],
                 "CellLines": [
                     "NS007", "NS045", "NS036", "NS034", "NS044",  "ND40077", "ND39027", "GIH-130",
                     "GIH91", "FTD73", "ALS45", "ALS15", "ALS1", "ALS24", "FTD37", 
-                    "NS013", "NS022", "NS025", "NS026", "ALS33", "ALS25", "ALS30", "NS024", "NS028"
+                    "NS013", "NS022", "NS025", "NS026", "ALS33", "ALS25", "ALS30", "NS024", "NS028",
+                    "GIH125", "C9011", "C9021", "C9028", "C9007", "C9016", "C9022", "C9017", "GIH41", "C9063" 
                 ]
             }
             ]

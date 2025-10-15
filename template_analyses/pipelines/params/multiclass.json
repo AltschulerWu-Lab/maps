@@ -11,7 +11,7 @@
         "drop_na_features": {"na_prop": 0.1},
         "drop_sample_by_feature": {
             "drop_key": [
-                {"CellLines": ["C9014", "NS048"]},
+                {"CellLines": ["C9014", "NS048", "FTD37"]},
                 {"Mutations": ["TDP43"]}
             ]
         },

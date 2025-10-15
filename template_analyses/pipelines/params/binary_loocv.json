@@ -1,8 +1,8 @@
 {
-    "name": "binary", 
-    "description": "Binary classification analysis. Models trained on classify a single ALS genetic background vs health. Genetic-specific models applied to all ALS genetic backgrounds in eval set.",
+    "name": "binary_loocv", 
+    "description": "Binary classification analysis. Models trained on classify a single ALS genetic background vs health. Genetic-specific models applied to all ALS genetic backgrounds in eval set. Models trainined using leave one out cross validation",
     "screen": "20250216_AWALS37_Full_screen_n96",
-    "antibodies": ["FUS/EEA1", "COX IV/Galectin3/atubulin"],
+    "antibodies": ["FUS/EEA1", "COX IV/Galectin3/atubulin", "HSP70/SOD1"],
     "root": "/awlab/projects/2024_ALS/Experiments",
     "data_file": "Objects_Population - Nuclei Selected.txt",
     "eval_dir": "Evaluation1",
@@ -49,7 +49,6 @@
                 }
             },
             "seed": 47,
-            "reps": 3,
             "data_loader": {
                 "batch_size": 8,
                 "n_cells": 250,
@@ -63,7 +62,7 @@
                     }
                 } 
             },
-            "fitter":  "sample_split_mut"
+            "fitter":  "leave_one_out_mut"
         }
     }
 }   

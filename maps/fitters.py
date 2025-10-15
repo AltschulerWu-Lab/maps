@@ -144,6 +144,7 @@ def leave_one_out_pytorch(
 
     for cl in cell_lines:
         # Define test set: current cell line + holdout
+        print(f"---Training hold-out: {cl}---")
         cell_lines_test = set([cl] + holdout)
         train_celllines = list(set(cell_lines) - cell_lines_test)
         split.append(train_celllines)
@@ -199,13 +200,34 @@ def sample_split(screen, model, holdout=[], seed=47) -> Dict:
     """Wrapper for sample split cross-validation with hold-out cell lines. Dispatches to sklearn or pytorch implementation based on model type."""
     metadata = merge_metadata(screen)
     holdout += get_mutation_celllines(metadata, ["sporadic"])
+
+    reps = screen.params.get("analysis").get("MAP", {}).get("reps", 1)
+    out_list = []
+    for i in range(reps):
+        print(f"--- Replicate {i+1}/{reps} ---")
+        if isinstance(model, SKLearnModel):
+            out_list.append(sample_split_sklearn(screen, model, holdout, seed + i))
+        elif isinstance(model, PyTorchModel):
+            out_list.append(sample_split_pytorch(screen, model, holdout, seed + i))
+        else:
+            raise ValueError(f"Unsupported model type: {type(model)}")
+
+    # Reformat output list into dict matching sample_split_* structure
+    keys = out_list[0].keys()
+    out = {}
+    for k in keys:
+        if k == 'predicted':
+            dfs = [d[k] for d in out_list if d[k] is not None]
+            out[k] = pl.concat(dfs)
+        elif k == 'importance':
+            out[k] = None
+        else:
+            vals = []
+            for d in out_list:
+                vals.extend(d[k])
+            out[k] = vals
     
-    if isinstance(model, SKLearnModel):
-        return sample_split_sklearn(screen, model, holdout, seed)
-    elif isinstance(model, PyTorchModel):
-        return sample_split_pytorch(screen, model, holdout, seed)
-    else:
-        raise ValueError(f"Unsupported model type: {type(model)}")
+    return out
 
 
 def sample_split_pytorch(

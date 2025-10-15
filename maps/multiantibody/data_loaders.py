@@ -370,16 +370,13 @@ def create_multiantibody_dataloader(
     num_workers: int = 0,
     seed: Optional[int] = None,
     scale: bool = False,
-    scalers: Optional[Dict[str, Any]] = None
+    scalers: Optional[Dict[str, Any]] = None,
+    select_samples: Optional[List[str]] = None,
+    drop_samples: Optional[List[str]] = None
 ) -> MultiAntibodyLoader:
     """
     Create a PyTorch DataLoader for multimodal imaging data.
     Returns a MultiAntibodyLoader that yields batches as dicts keyed by antibody.
-    
-    Args:
-        scalers: Dictionary with antibody names as keys and StandardScaler objects as values.
-                If scale=True and scalers is None, new scalers will be created for each antibody.
-                If scale=True and scalers is provided, the corresponding scaler will be used for each antibody.
     """
     assert screen.data is not None, "screen data is not loaded"
     assert screen.metadata is not None, "screen metadata is not loaded"
@@ -389,21 +386,41 @@ def create_multiantibody_dataloader(
     # Initialize response key
     if response_map is None:
         merged_meta = pl.concat([s for s in screen.metadata.values()])
-        response_values = sorted(merged_meta[response].unique())  # Sort to ensure deterministic order
-        response_map = {resp: i for i, resp in enumerate(response_values)}
-            
+        response_values = sorted(merged_meta[response].unique())
+        response_map = {response: {resp: i for i, resp in enumerate(response_values)}}
+    
+    # Apply sample filtering if specified
+    filtered_data = {}
+    filtered_metadata = {}
+    
     for antibody in screen.data.keys():
+        data = screen.data[antibody]
+        metadata = screen.metadata[antibody]
+        
+        # Filter samples based on select_samples and drop_samples
+        if select_samples is not None:
+            metadata = metadata.filter(pl.col(grouping).is_in(select_samples))
+            data = data.filter(pl.col("ID").is_in(metadata["ID"]))
+        
+        if drop_samples is not None:
+            metadata = metadata.filter(~pl.col(grouping).is_in(drop_samples))
+            data = data.filter(pl.col("ID").is_in(metadata["ID"]))
+        
+        filtered_data[antibody] = data
+        filtered_metadata[antibody] = metadata
+            
+    for antibody in filtered_data.keys():
         # Get the appropriate scaler for this antibody
         antibody_scaler = None
         if scale and scalers is not None:
             antibody_scaler = scalers.get(antibody, None)
         
         dataset = ImagingDataset(
-            data=screen.data[antibody],
-            metadata=screen.metadata[antibody],
+            data=filtered_data[antibody],
+            metadata=filtered_metadata[antibody],
             antibody=antibody,
             response=response,
-            response_map=response_map,
+            response_map=dataset_response_map,
             grouping=grouping,
             n_cells=n_cells,
             seed=seed,
@@ -414,8 +431,7 @@ def create_multiantibody_dataloader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
-            num_workers=num_workers,
-            drop_last=True
+            num_workers=num_workers
         )
     return MultiAntibodyLoader(dataloaders, shuffle=shuffle, mode=mode)
 
@@ -462,3 +478,16 @@ if __name__ == "__main__":
         print(batch[keys[0]][1])
         if len(keys) > 1:
             print(batch[keys[1]][1])
+    
+    # Example with sample filtering
+    # Select only specific cell lines
+    dataloader_selected = create_multiantibody_dataloader(
+        screen,
+        select_samples=["CellLine1", "CellLine2", "CellLine3"]
+    )
+    
+    # Drop specific cell lines
+    dataloader_dropped = create_multiantibody_dataloader(
+        screen,
+        drop_samples=["BadCellLine1", "BadCellLine2"]
+    )
