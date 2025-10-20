@@ -14,9 +14,9 @@ def group_predicted(predicted, group, score):
         
     return df
 
-def adjust_map_scores(df, X, model):
+def adjust_map_scores(df, X, model, score="Class_1"):
     """ Adjust MAP scores for count"""
-    df["Score"] = df["Ypred"] - model.predict(X) \
+    df["Score"] = df[score] - model.predict(X) \
         + model.params["const"] \
         + model.params["NCells"] * 1000
         
@@ -26,7 +26,7 @@ def adjust_map_scores(df, X, model):
     return df
 
 
-def fit_size_model(df):
+def fit_size_model(df, score="Class_1"):
     """Fit MAP score cell count adjustment model"""
     X = pd.get_dummies(
         df[['NCells', 'Mutations']], 
@@ -36,7 +36,7 @@ def fit_size_model(df):
     )
 
     X = sm.add_constant(X)
-    model = sm.OLS(df['Ypred'], X).fit()
+    model = sm.OLS(df[score], X).fit()
     return model, X
 
 def conformal_prediction_sets_core(cal_df, eval_df, quantile=0.9):
