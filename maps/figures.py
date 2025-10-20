@@ -284,7 +284,7 @@ def plot_map_adjustment(df, model=None, X=None, sporadics=False, **kwargs):
     sns.scatterplot(
         data=df, 
         x='NCells', 
-        y='Ypred', 
+        y='Class_1', 
         **kwargs,
         hue='Mutations',
         palette=PALETTE,

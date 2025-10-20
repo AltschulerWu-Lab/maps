@@ -1,0 +1,68 @@
+{
+    "name": "binary_loocv", 
+    "description": "Binary classification analysis. Models trained on classify a single ALS genetic background vs health. Genetic-specific models applied to all ALS genetic backgrounds in eval set. Models trainined using leave one out cross validation",
+    "screen": "20250216_AWALS37_Full_screen_n96",
+    "antibodies": ["FUS/EEA1", "COX IV/Galectin3/atubulin", "HSP70/SOD1"],
+    "root": "/awlab/projects/2024_ALS/Experiments",
+    "data_file": "Objects_Population - Nuclei Selected.txt",
+    "eval_dir": "Evaluation1",
+    "result_dir": "/home/kkumbier/als/analysis_results",
+    "preprocess": {
+        "drop_na_features": {"na_prop": 0.1},
+        "drop_sample_by_feature": {
+            "drop_key": [
+                {"CellLines": ["C9014", "NS048", "FTD37"]},
+                {"Mutations": ["TDP43"]}
+            ]
+        },
+        "select_sample_by_feature": {
+            "select_key": [
+                {"Drugs": ["DMSO"]}
+            ]
+        },
+        "drop_cells_by_feature_qt": {
+            "feature_filters": {
+                "Nucleus_Region_Area_[µm²]": 0.05,
+                "Cell_Region_Area_[µm²]": 0.05
+            }
+        },
+        "select_feature_types": {
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
+        },
+        "drop_feature_types": {
+            "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
+        },
+        "drop_constant_features":{}
+    },
+    "analysis": {
+        "MAP": {
+            "model": {
+                "MultiAntibody": {
+                    "model": {
+                        "n_classes": 2,
+                        "d_model": 16,
+                        "n_layers": 1
+                    },
+                    "train": {
+                        "n_epochs": 100
+                    }
+                }
+            },
+            "seed": 47,
+            "data_loader": {
+                "batch_size": 8,
+                "n_cells": 250,
+                "response_map": {
+                    "Mutations": {
+                        "WT": 0, 
+                        "FUS": 1, 
+                        "SOD1": 1, 
+                        "C9orf72": 1, 
+                        "sporadic": 1
+                    }
+                } 
+            },
+            "fitter":  "leave_one_out_mut"
+        }
+    }
+}   

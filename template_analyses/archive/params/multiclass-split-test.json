@@ -1,0 +1,52 @@
+{
+    "name": "maps_dmso", 
+    "screen": "20250216_AWALS37_Full_screen_n96",
+    "root": "/awlab/projects/2024_ALS/Experiments",
+    "data_file": "Objects_Population - Nuclei Selected.txt",
+    "eval_dir": "Evaluation1",
+    "preprocess": {
+        "drop_na_features": {"na_prop": 0.1},
+        "drop_sample_by_feature": {
+            "drop_key": [
+                {"CellLines": [
+                    "NS007", "NS045", "NS036", "NS034", "NS044",  "ND40077", "ND39027", "GIH-130",
+                    "GIH91", "FTD73", "ALS45", "ALS15", "ALS1", "ALS24", "FTD37", 
+                    "NS013", "NS022", "NS025", "NS026", "ALS33", "ALS25", "ALS30", "NS024", "NS028",
+                    "GIH125", "C9011", "C9021", "C9028", "C9007", "C9016", "C9022", "C9017", "GIH41", "C9063", 
+                    "C9014", "NS048"
+                ]
+            }
+            ]
+        },
+        "select_sample_by_feature": {
+            "select_key": [
+                {"Drugs": ["DMSO"], 
+                "Mutations": ["FUS", "WT", "SOD1", "C9orf72"]
+                }
+            ]
+        },
+        "drop_cells_by_feature_qt": {
+            "feature_filters": {
+                "Nucleus_Region_Area_[µm²]": 0.05,
+                "Cell_Region_Area_[µm²]": 0.05
+            }
+        },
+        "select_feature_types": {
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
+        },
+        "drop_feature_types": {
+            "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
+        },
+        "drop_constant_features":{}
+    },
+    "analysis": {
+        "MAP": {
+            "model": {
+                "MultiAntibody": {}
+            },
+            "seed": 47,
+            "response": "Mutations",
+            "fitter":  "leave_one_out"
+        }
+    }
+}   

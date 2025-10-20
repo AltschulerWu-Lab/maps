@@ -8,12 +8,14 @@
         "drop_na_features": {"na_prop": 0.1},
         "drop_sample_by_feature": {
             "drop_key": [
-                {"CellLines": ["C9014", "NS048"]}
+                {"CellLines": ["C9014", "NS048", "NS007", "NS045", "NS036", "GIH91", "FTD73", "ALS45", "C9012", "C9027", "C9031", "NS013", "NS022", "NS025"]}
             ]
         },
         "select_sample_by_feature": {
             "select_key": [
-                {"Drugs": ["DMSO"]}
+                {"Drugs": ["DMSO"], 
+                "Mutations": ["FUS", "WT", "SOD1"]
+                }
             ]
         },
         "drop_cells_by_feature_qt": {
@@ -23,32 +25,21 @@
             }
         },
         "select_feature_types": {
-            "feature_str": "^.*Intensity.*$"
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
         },
         "drop_feature_types": {
-            "feature_str": "^.*HOECHST.*$|^.*546.*$"
+            "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
         },
-        "drop_constant_features":{},
-        "pca_transform": {
-            "alpha": 0.95,
-            "groups":["488", "647"]
-        },
-        "subsample_rows_by_id": {
-            "n": 100,
-            "seed": 47
-        }
+        "drop_constant_features":{}
     },
     "analysis": {
         "MAP": {
             "model": {
-                "BinaryLogistic": {
-                    "tol": 5e-2, 
-                    "solver": "saga"
-                }
+                "MultiAntibody": {}
             },
             "seed": 47,
             "response": "Mutations",
-            "fitter":  "leave_one_out_mut"
+            "fitter":  "leave_one_out"
         }
     }
 }   

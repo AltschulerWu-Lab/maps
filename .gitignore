@@ -1,0 +1,5 @@
+*.pyc
+*wandb*
+*.png
+*.csv
+*.pkl

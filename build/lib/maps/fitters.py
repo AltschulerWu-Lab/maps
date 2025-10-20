@@ -15,13 +15,18 @@ from typing import Dict
 from maps.models import BaseModel
 from maps.processing import select_sample_by_feature
 from maps.fitter_utils import cellline_split
+from maps.multiantibody.data_loaders import create_multiantibody_dataloader
+
+from maps.multiantibody.config import DataLoaderConfig
+
 from typing import TYPE_CHECKING, List
 import copy
 
 if TYPE_CHECKING:
     from maps.screens import ScreenBase
+    from maps.screens import ImageScreenMultiAntibody
 
-
+# --- Leave one out training loops ---
 def leave_one_out_mut(
     screen: 'ScreenBase', model: BaseModel) -> Dict:
     """ Wapper for running `leave_one_out` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
@@ -52,7 +57,6 @@ def leave_one_out(
     """Fit models with one cell line removed and evaluates prediction on 
     hold-out cell line. Optionally include additional set of cell lines as holdouts.
     """
-
     y = screen.get_response() 
     x = screen.get_data()
     
@@ -100,8 +104,82 @@ def leave_one_out(
     out["predicted"] = pl.concat(predicted)
     out["importance"] = pd.concat([pd.Series(p) for p in importance], axis=1)
     return out
+        
 
-    
+def leave_one_out_dataloader(
+    screen: "ImageScreenMultiAntibody", 
+    model: BaseModel, 
+    holdout: List|None=None
+):
+    """
+    Leave-one-cell-line-out cross-validation using DataLoader interface.
+    """
+    dataloader_config = screen.params.get("analysis").get("MAP", None)
+    if dataloader_config is None:
+        dataloader_config = DataLoaderConfig()
+
+    cell_lines = screen.metadata["CellLines"].unique().to_list()
+    if holdout is not None:
+        cell_lines = list(set(cell_lines) - set(holdout))
+
+    fitted = []
+    predicted = []
+    for cl in cell_lines:
+        cell_lines_test = [cl]
+        if holdout is not None:
+            cell_lines_test += holdout
+
+        # Split metadata for train/test
+        train_screen = copy.deepcopy(screen)
+        test_screen = copy.deepcopy(screen)
+        for ab in screen.data.keys():
+            train_meta = screen.metadata[ab].filter(
+                ~pl.col("CellLines").is_in(cell_lines_test)
+            )
+            
+            test_meta = screen.metadata[ab].filter(
+                pl.col("CellLines").is_in(cell_lines_test)
+            )
+            
+            train_screen.metadata[ab] = train_meta
+            test_screen.metadata[ab] = test_meta
+
+            train_screen.data[ab] = screen.data[ab].filter(
+                pl.col("ID").is_in(train_meta.select("ID"))
+            )
+
+            test_screen.data[ab] = screen.data[ab].filter(
+                pl.col("ID").is_in(test_meta.select("ID"))
+            )
+
+        # Create dataloaders
+        from maps.multiantibody.data_loaders import create_multiantibody_dataloader
+        train_loader = create_multiantibody_dataloader(
+            train_screen, shuffle=True, **dataloader_config
+        )
+        
+        test_loader = create_multiantibody_dataloader(
+            test_screen, shuffle=False, **dataloader_config
+        )
+
+        # Fit and predict
+        fitted_cl = model.fit(data_loader=train_loader)
+        ypred = model.predict(fitted_cl, data_loader=test_loader)
+        # Attach cell line info to predictions as needed
+
+        # Collect results
+        predicted.append( ... )  # format as needed
+        fitted.append(fitted_cl)
+
+    # Combine results as in leave_one_out
+    out = {
+        "fitted": fitted,
+        "predicted": ...,
+        "importance": None  # or as appropriate
+    }
+    return out
+
+# --- Sample split training loops ---
 def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     """ Wapper for running `sample_split` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
     """
@@ -130,8 +208,7 @@ def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
         screen.metadata = xmeta_full
         
     return out
-        
-    
+
 def sample_split(
     screen: 'ScreenBase', model: BaseModel, 
     holdout: List|None=None, seed: int=47) -> Dict:

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from maps.screens import ScreenBase
 
 
-# Feature filters
+# --- Feature filters ---
 def drop_na_features(x: "ScreenBase", **kwargs) -> "ScreenBase":
     """Drop columns exceeding NA threshold, replace with mean otherwise. 
     
@@ -81,7 +81,7 @@ def drop_feature_types(x: "ScreenBase", **kwargs) -> "ScreenBase":
     return x
 
 
-# Sample filters
+# --- Sample filters ---
 def select_sample_by_feature(x: "ScreenBase", **kwargs) -> "ScreenBase":
     """Filter to samples whose metadata feature matches specified value. 
     
@@ -189,7 +189,7 @@ def subsample_rows_by_id(x: "ScreenBase", **kwargs) -> "ScreenBase":
     return x
 
 
-# Feature transforms
+# --- Feature transforms ---
 def pca_transform(x: "ScreenBase", **kwargs) -> "ScreenBase":
     """Performs PCA transformation on features by group (e.g., marker) and 
     maintains PCs that explain specified % variance within each group. 
@@ -206,4 +206,33 @@ def pca_transform(x: "ScreenBase", **kwargs) -> "ScreenBase":
     x.data = pca_by_group(x.data, groups, alpha)
     return x
 
+def group_markers(x: "ScreenBase", **kwargs) -> "ScreenBase":
+    """Reformat data by grouping markers into groups specified in the
+    grouping list.
+    
+    Additional kwargs:
+    
+        groups (list): list of column regex matches for grouping data. Any
+        column matching no entries of groups will be grouped.
+    """
+    groups = kwargs["groups"]
+    x.data = group_features_by_marker(x.data, groups)
+    return x
 
+def standardize_features(x: "ScreenBase") -> "ScreenBase":
+    """Standardize features by removing mean and scaling to unit variance.
+    
+    Additional kwargs:
+    
+        feature_str (str): regex string to match features on. To select
+        multiple features, separate terms with `|`. Each term must start with 
+        `^` and end with `$`
+    """
+    
+    numeric_cols = [c for c in x.data.columns if c != "ID"]
+    x.data = x.data.with_columns([
+        ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-6)).alias(c)
+        for c in numeric_cols
+    ])
+    
+    return x       
