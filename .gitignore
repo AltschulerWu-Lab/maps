@@ -2,3 +2,4 @@
 *wandb*
 *.png
 *.csv
+*.pkl
