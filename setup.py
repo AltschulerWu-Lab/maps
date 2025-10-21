@@ -13,7 +13,7 @@ setup(
         'numpy',
         'imblearn',
         'statsmodels',
-        'torch>=2.1.0'
+        'torch>=2.7.1'
     ],
     include_package_data=True,
     author="Karl Kumbier",
