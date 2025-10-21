@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="maps",  # Replace with your package name
     version="0.0.0",  # Update as needed
-    packages=['maps'],  # Automatically finds all subpackages
+    packages=find_packages(),  # Automatically finds all subpackages
     install_requires=[
         'polars', 
         'pandas', 
