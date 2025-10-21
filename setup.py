@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name="maps",  # Replace with your package name
-    version="0.0.0",  # Update as needed
-    packages=find_packages(),  # Automatically finds all subpackages
+    version="0.1.0",
+    packages=find_packages(),
     install_requires=[
         'polars', 
         'pandas', 
@@ -12,9 +12,10 @@ setup(
         'scikit-learn', 
         'numpy',
         'imblearn',
-        'statsmodels'
+        'statsmodels',
+        'torch>=2.1.0'
     ],
-    include_package_data=True,  # Includes non-code files (if using MANIFEST.in)
+    include_package_data=True,
     author="Karl Kumbier",
     author_email="karl.kumbier@ucsf.edu",
     description="Pipeline for running ALS MAP scoring and related analyses",
@@ -23,7 +24,7 @@ setup(
     url="",  # Change if applicable
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",  # Change if needed
+        "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.11",  # Set your minimum Python version
