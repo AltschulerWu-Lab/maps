@@ -33,7 +33,22 @@ if TYPE_CHECKING:
 
 # --- Leave one out training loops ---
 def leave_one_out_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
-    """ Wapper for running `leave_one_out` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics.
+    """Wrapper for running leave-one-out fitter by mutational background.
+    
+    Binary classifiers for <mutation> vs WT will be run for all ALS mutational 
+    backgrounds, excluding sporadics. Each mutation is trained separately using
+    leave-one-out cross-validation on cell lines.
+    
+    Args:
+        screen (ScreenBase): Screen object containing data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        
+    Returns:
+        Dict[str, Dict]: Dictionary keyed by mutation name, each containing:
+            - `fitted` (list): List of fitted models
+            - `predicted` (pl.DataFrame): Predictions with metadata
+            - `importance` (pd.DataFrame or None): Feature importances
+            - Additional keys depending on model type
     """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
@@ -51,8 +66,26 @@ def leave_one_out_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
          
     return out
 
-def leave_one_out(screen: 'ScreenBase', model: BaseModel, holdout:List=[]):
-    """Wrapper for leave-one-out cross-validation. Dispatches to sklearn or pytorch implementation based on model type."""
+def leave_one_out(screen: 'ScreenBase', model: BaseModel, holdout: List = []) -> Dict:
+    """Wrapper for leave-one-out cross-validation.
+    
+    Dispatches to sklearn or pytorch implementation based on model type. Leaves
+    one cell line out at a time, trains on remaining cell lines, and predicts
+    on the held-out cell line plus any additional holdout cell lines specified.
+    
+    Args:
+        screen (ScreenBase): Screen object containing data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        holdout (List[str], optional): Additional cell lines to hold out from 
+            training. Defaults to [].
+            
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of fitted models (one per cell line)
+            - `predicted` (pl.DataFrame): Predictions with metadata
+            - `importance` (pd.DataFrame or None): Feature importances
+            - Additional keys for PyTorch models (scalers, training_lines)
+    """
     metadata = merge_metadata(screen)
     holdout += get_mutation_celllines(metadata, ["sporadic"])
     
@@ -67,9 +100,25 @@ def leave_one_out(screen: 'ScreenBase', model: BaseModel, holdout:List=[]):
 def leave_one_out_sklearn(
     screen: "ScreenBase", 
     model: BaseModel, 
-    holdout: List=[]):
+    holdout: List = []) -> Dict:
+    """Leave-one-out cross-validation for scikit-learn models.
     
-    """Leave-one-out cross-validation for scikit-learn models."""
+    Iterates through each cell line, training on all other cell lines and 
+    predicting on the held-out cell line. Models are trained on well-averaged
+    features.
+    
+    Args:
+        screen (ScreenBase): Screen object with data and metadata.
+        model (BaseModel): SKLearnModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+            
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of fitted model copies
+            - `predicted` (pl.DataFrame): Predictions joined with metadata
+            - `importance` (pd.DataFrame): Feature importances from each fold
+    """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
     y = screen.get_response() 
@@ -123,9 +172,27 @@ def leave_one_out_sklearn(
 def leave_one_out_pytorch(
     screen: "ScreenBase", 
     model: BaseModel, 
-    holdout: List=[]
-):
-    """ Leave-one-cell-line-out classification for PyTorch models."""
+    holdout: List = []) -> Dict:
+    """Leave-one-cell-line-out classification for PyTorch models.
+    
+    Trains PyTorch models using DataLoader batching on single-cell data.
+    Each iteration holds out one cell line for testing while training on all
+    remaining cell lines.
+    
+    Args:
+        screen (ScreenBase): Screen object (ImageScreen or ImageScreenMultiAntibody).
+        model (BaseModel): PyTorchModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+            
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of fitted model copies (moved to CPU)
+            - `predicted` (pl.DataFrame): Concatenated predictions
+            - `scalers` (list): Feature scalers for each fold
+            - `training_lines` (list): Cell lines used in training
+            - `importance` (None): Not implemented for PyTorch models
+    """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
 
@@ -177,7 +244,22 @@ def leave_one_out_pytorch(
 
 # --- Sample split training loops ---
 def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
-    """ Wapper for running `sample_split` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics.
+    """Wrapper for running sample_split fitter by mutational background.
+    
+    Binary classifiers for <mutation> vs WT will be run for all ALS mutational 
+    backgrounds, excluding sporadics. For each mutation, performs a 50/50 sample
+    split with reciprocal training and prediction.
+    
+    Args:
+        screen (ScreenBase): Screen object containing data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        
+    Returns:
+        Dict[str, Dict]: Dictionary keyed by mutation name, each containing:
+            - `fitted` (list): List of fitted models (2 per mutation)
+            - `predicted` (pl.DataFrame): Predictions with metadata
+            - `training_lines` (list): Cell lines in each training split
+            - Additional keys depending on model type
     """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
@@ -196,8 +278,27 @@ def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     return out
 
 
-def sample_split(screen, model, holdout=[], seed=47) -> Dict:
-    """Wrapper for sample split cross-validation with hold-out cell lines. Dispatches to sklearn or pytorch implementation based on model type."""
+def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = [], seed: int = 47) -> Dict:
+    """Wrapper for sample split cross-validation with hold-out cell lines.
+    
+    Splits cell lines 50/50, trains two models reciprocally (each on one split,
+    predicting on the other), and combines predictions. Supports multiple 
+    replicates via params configuration.
+    
+    Args:
+        screen (ScreenBase): Screen object with data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+        seed (int, optional): Random seed for reproducibility. Defaults to 47.
+        
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of all fitted models from all replicates
+            - `predicted` (pl.DataFrame): Concatenated predictions from replicates
+            - `training_lines` (list): Cell lines in each training split
+            - Additional keys depending on model type
+    """
     metadata = merge_metadata(screen)
     holdout += get_mutation_celllines(metadata, ["sporadic"])
 
@@ -233,10 +334,29 @@ def sample_split(screen, model, holdout=[], seed=47) -> Dict:
 def sample_split_pytorch(
     screen: "ScreenBase", 
     model: BaseModel, 
-    holdout: List=[], 
-    seed: int=47) -> Dict:
+    holdout: List = [], 
+    seed: int = 47) -> Dict:
+    """Sample split cross-validation for PyTorch models.
     
-    """ Sample split for PyTorch models."""
+    Performs 50/50 cell line split with reciprocal training using DataLoader
+    batching on single-cell data. Each model is trained on one split and 
+    predicts on the complementary split plus holdout cell lines.
+    
+    Args:
+        screen (ScreenBase): Screen object (ImageScreen or ImageScreenMultiAntibody).
+        model (BaseModel): PyTorchModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+        seed (int, optional): Random seed for split generation. Defaults to 47.
+        
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): Two fitted models (moved to CPU)
+            - `predicted` (pl.DataFrame): Concatenated predictions
+            - `training_lines` (list): Cell lines in each training split (2 lists)
+            - `scalers` (list): Feature scalers for each split (2 scalers)
+            - `importance` (None): Not implemented for PyTorch models
+    """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
     assert isinstance(model, PyTorchModel), "model must be a PyTorchModel"
@@ -295,9 +415,27 @@ def sample_split_pytorch(
 def sample_split_sklearn(
     screen: 'ScreenBase', 
     model: BaseModel, 
-    holdout: List=[], 
-    seed: int=47) -> Dict:
-    """ Sample split for sklearn models."""
+    holdout: List = [], 
+    seed: int = 47) -> Dict:
+    """Sample split cross-validation for sklearn models.
+    
+    Performs 50/50 cell line split with reciprocal training on well-averaged
+    features. Each model is trained on one split and predicts on the 
+    complementary split. Predictions are centered around 0.5.
+    
+    Args:
+        screen (ScreenBase): Screen object with data and metadata.
+        model (BaseModel): SKLearnModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+        seed (int, optional): Random seed for split generation. Defaults to 47.
+        
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): Two fitted models
+            - `predicted` (pl.DataFrame): Predictions joined with metadata, centered
+            - `importance` (pd.Series or None): Average feature importances
+    """
     assert screen.data is not None, "screen data not loaded"
     assert screen.metadata is not None, "screen metadata not loaded"
     
