@@ -2,12 +2,17 @@
 Screens are the basic container for storing and running an entire analysis pipeline, including: data loading and preprocessing, exploratory figures, and quantitative analyses.
 
 The BaseScreen class is modality independent. Modality-specific Screen classes extend the `ScreenBase` class to handle loading of different data types.
+
+The module also provides a utility function `merge_screens_to_multiantibody` for combining
+multiple single-antibody ImageScreen instances into an ImageScreenMultiAntibody instance.
 """
 from maps.loaders import OperettaLoader
 from maps.screen_utils import categorize
 import polars as pl
 import numpy as np
 import importlib
+from typing import Dict
+import copy
 
 class ScreenBase():
     """Base class for processing data from a screen.
@@ -220,7 +225,9 @@ class ImageScreenMultiAntibody(ScreenBase):
         """Run preprocessing steps for each antibody dataset.
         
         Applies all preprocessing functions defined in params to each antibody's
-        data independently, maintaining alignment across samples.
+        data independently, maintaining alignment across samples. Handles both
+        unified preprocessing (single dict) and antibody-specific preprocessing
+        (dict of dicts keyed by antibody).
         """
         assert self.data is not None
         assert self.metadata is not None
@@ -229,10 +236,27 @@ class ImageScreenMultiAntibody(ScreenBase):
         dfmeta_multimodal = self.metadata.copy()
         processing = importlib.import_module("maps.processing")
         
+        # Check if preprocess is a dict of dicts (antibody-specific) or single dict
+        preprocess_config = self.params.get("preprocess", {})
+        is_antibody_specific = False
+        
+        # Detect if preprocessing is antibody-specific by checking if values are dicts
+        if preprocess_config and isinstance(next(iter(preprocess_config.values()), None), dict):
+            # Check if keys match antibody names
+            if set(preprocess_config.keys()) == set(df_multimodal.keys()):
+                is_antibody_specific = True
+        
         for ab in df_multimodal:
             self.data, self.metadata = df_multimodal[ab], dfmeta_multimodal[ab]
-    
-            for f, v in self.params.get("preprocess").items():
+            
+            # Get preprocessing config for this antibody
+            if is_antibody_specific:
+                ab_preprocess = preprocess_config.get(ab, {})
+            else:
+                ab_preprocess = preprocess_config
+            
+            # Apply preprocessing functions
+            for f, v in ab_preprocess.items():
                 self = self._run(getattr(processing, f), v)
 
             df_multimodal[ab], dfmeta_multimodal[ab] = self.data, self.metadata
@@ -288,6 +312,105 @@ class ImageScreenMultiAntibody(ScreenBase):
                 y[k] = [categorize(yy) for yy in y[k]]
             
         return y
+
+def merge_screens_to_multiantibody(screens: Dict[str, ImageScreen]) -> ImageScreenMultiAntibody:
+    """Merge multiple ImageScreen instances into a single ImageScreenMultiAntibody instance.
+    
+    This function combines data from multiple single-antibody ImageScreen instances into
+    a multi-antibody screen. It validates that analysis parameters are consistent across
+    screens and intelligently handles preprocessing parameters that may differ by antibody.
+    
+    Args:
+        screens (Dict[str, ImageScreen]): Dictionary mapping antibody names to ImageScreen
+            instances. Keys should be antibody names (e.g., "FUS/EEA1") and values should
+            be loaded ImageScreen objects. Screens may or may not be preprocessed.
+    
+    Returns:
+        ImageScreenMultiAntibody: A merged multi-antibody screen with:
+            - data: Dict mapping antibody names to DataFrames
+            - metadata: Dict mapping antibody names to metadata DataFrames
+            - params: Merged parameters with combined antibody list
+            - preprocessed: True if all input screens were preprocessed, False otherwise
+    
+    Raises:
+        ValueError: If screens have inconsistent analysis parameters or if no screens provided.
+        AssertionError: If screens are not loaded.
+    
+    Example:
+        >>> screen1 = ImageScreen(params1)
+        >>> screen1.load(antibody="FUS/EEA1")
+        >>> screen1.preprocess()
+        >>> 
+        >>> screen2 = ImageScreen(params2)
+        >>> screen2.load(antibody="COX IV/Galectin3/atubulin")
+        >>> screen2.preprocess()
+        >>> 
+        >>> screens = {"FUS/EEA1": screen1, "COX IV/Galectin3/atubulin": screen2}
+        >>> multi_screen = merge_screens_to_multiantibody(screens)
+    """
+    if not screens:
+        raise ValueError("No screens provided for merging")
+    
+    # Validate all screens are loaded
+    for ab_name, screen in screens.items():
+        if not screen.loaded:
+            raise AssertionError(f"Screen '{ab_name}' is not loaded")
+    
+    # Get reference screen for parameter merging
+    ref_screen = next(iter(screens.values()))
+    
+    # Validate and merge params
+    merged_params = copy.deepcopy(ref_screen.params)
+    
+    # Check that analysis parameters are consistent across all screens
+    ref_analysis = ref_screen.params.get("analysis", {})
+    for ab_name, screen in screens.items():
+        screen_analysis = screen.params.get("analysis", {})
+        if screen_analysis != ref_analysis:
+            raise ValueError(
+                f"Analysis parameters for '{ab_name}' differ from reference screen. "
+                "All screens must have identical analysis configurations."
+            )
+    
+    # Set antibodies list from screen keys
+    merged_params["antibodies"] = list(screens.keys())
+    
+    # Handle preprocessing parameters
+    # Check if all preprocessing configs are identical
+    ref_preprocess = ref_screen.params.get("preprocess", {})
+    all_same = True
+    
+    for ab_name, screen in screens.items():
+        screen_preprocess = screen.params.get("preprocess", {})
+        if screen_preprocess != ref_preprocess:
+            all_same = False
+            break
+    
+    if all_same:
+        # Use single preprocessing config if all are the same
+        merged_params["preprocess"] = ref_preprocess
+    else:
+        # Create dict of preprocessing configs keyed by antibody
+        merged_params["preprocess"] = {
+            ab_name: screen.params.get("preprocess", {})
+            for ab_name, screen in screens.items()
+        }
+    
+    # Create the multi-antibody screen
+    multi_screen = ImageScreenMultiAntibody(merged_params)
+    
+    # Populate data and metadata from input screens
+    multi_screen.data = {}
+    multi_screen.metadata = {}
+    
+    for ab_name, screen in screens.items():
+        multi_screen.data[ab_name] = screen.data
+        multi_screen.metadata[ab_name] = screen.metadata
+    
+    # Set preprocessed flag based on whether all input screens were preprocessed
+    multi_screen.preprocessed = all(screen.preprocessed for screen in screens.values())
+    
+    return multi_screen
 
 if __name__ == "__main__":
     import json    

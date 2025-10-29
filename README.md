@@ -53,7 +53,7 @@ The `preprocess` dict specifies all preprocessing functions to be performed. Key
 - `drop_feature_types`: Remove features matching regex pattern (e.g., sum features or specific channels)
 - `drop_constant_features`: Remove features with no variance
 
-For the complete list of preprocessing functions and their parameters, see the [processing documentation](/home/kkumbier/maps/docs/maps/processing.html).
+For the complete list of preprocessing functions and their parameters, see the processing documentation.
 
 **Analysis params**
 The `analysis` dict specifies all analyses to be performed. Currently supports:
@@ -200,6 +200,78 @@ mscreen.preprocess()
 **Key differences:**
 - `ImageScreen`: Single DataFrame for data and metadata
 - `ImageScreenMultiAntibody`: Dictionary of DataFrames (one per antibody)
+
+#### Merging Single-Antibody Screens
+
+The `merge_screens_to_multiantibody` function allows you to combine multiple `ImageScreen` instances (each containing data for a single antibody) into a single `ImageScreenMultiAntibody` instance. This is useful when you have processed multiple antibodies separately and want to combine them for multi-modal analysis.
+
+**Basic Usage:**
+
+```python
+from maps.screens import ImageScreen, merge_screens_to_multiantibody
+import json
+
+# Load parameters for each antibody
+with open("params.json", "r") as f:
+    base_params = json.load(f)
+
+# Create and load individual screens
+params1 = base_params.copy()
+params1["antibody"] = "FUS/EEA1"
+
+params2 = base_params.copy()
+params2["antibody"] = "COX IV/Galectin3/atubulin"
+
+screen1 = ImageScreen(params1)
+screen1.load(antibody="FUS/EEA1")
+screen1.preprocess()
+
+screen2 = ImageScreen(params2)
+screen2.load(antibody="COX IV/Galectin3/atubulin")
+screen2.preprocess()
+
+# Merge into multi-antibody screen
+screens_dict = {
+    "FUS/EEA1": screen1,
+    "COX IV/Galectin3/atubulin": screen2
+}
+
+multi_screen = merge_screens_to_multiantibody(screens_dict)
+
+# The merged screen has the multi-antibody structure
+print(list(multi_screen.data.keys()))  # ['FUS/EEA1', 'COX IV/Galectin3/atubulin']
+```
+
+**Parameter Merging:**
+
+The function intelligently merges parameters from individual screens:
+
+- **`antibodies` field**: Set to list of antibody names from the input dictionary keys
+- **`analysis` parameters**: Must be identical across all screens (validated)
+- **`preprocess` parameters**: 
+  - If identical across screens → single preprocessing dict
+  - If different → nested dict keyed by antibody name
+
+Example of antibody-specific preprocessing in merged params:
+```json
+{
+  "preprocess": {
+    "FUS/EEA1": {
+      "drop_na_features": {"na_prop": 0.05}
+    },
+    "COX IV/Galectin3/atubulin": {
+      "drop_na_features": {"na_prop": 0.1}
+    }
+  }
+}
+```
+
+The `ImageScreenMultiAntibody.preprocess()` method automatically detects and handles both unified and antibody-specific preprocessing formats.
+
+**Requirements:**
+- All input screens must be loaded (`screen.loaded == True`)
+- All screens must have identical analysis configurations
+- Dictionary keys should be the antibody names
 
 
 ### Exploratory data analysis (EDA) 
