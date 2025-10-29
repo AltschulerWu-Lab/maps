@@ -119,6 +119,8 @@ class MAP():
         Raises:
             AssertionError: If MAP key not found in analysis parameters.
         """
+        self.screen = screen
+        
         analysis_params = screen.params.get("analysis")
         assert("MAP" in analysis_params.keys())
         self.params = analysis_params.get("MAP")
