@@ -190,6 +190,7 @@ class ImageScreenMultiAntibody(ScreenBase):
         """
         super().__init__(params, OperettaLoader)
         self.preprocessed = False
+        self.loaded = False
         
     def load(self, antibody=None):
         """Load data for multiple antibody combinations.
@@ -220,6 +221,8 @@ class ImageScreenMultiAntibody(ScreenBase):
             self.data[ab] = df.filter(
                 pl.col("ID").is_in(self.metadata[ab]["ID"])
             )
+            
+        self.loaded = True
 
     def preprocess(self):
         """Run preprocessing steps for each antibody dataset.
@@ -330,6 +333,7 @@ def merge_screens_to_multiantibody(screens: Dict[str, ImageScreen]) -> ImageScre
             - data: Dict mapping antibody names to DataFrames
             - metadata: Dict mapping antibody names to metadata DataFrames
             - params: Merged parameters with combined antibody list
+            - loaded: True (data has been populated from input screens)
             - preprocessed: True if all input screens were preprocessed, False otherwise
     
     Raises:
@@ -406,6 +410,9 @@ def merge_screens_to_multiantibody(screens: Dict[str, ImageScreen]) -> ImageScre
     for ab_name, screen in screens.items():
         multi_screen.data[ab_name] = screen.data
         multi_screen.metadata[ab_name] = screen.metadata
+    
+    # Set loaded flag to True since data and metadata have been populated
+    multi_screen.loaded = True
     
     # Set preprocessed flag based on whether all input screens were preprocessed
     multi_screen.preprocessed = all(screen.preprocessed for screen in screens.values())
