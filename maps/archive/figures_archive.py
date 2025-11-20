@@ -3,8 +3,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn import metrics
-from maps.utils import group_predicted, fit_size_model
-from ..figures import PALETTE
+from maps.archive.utils import group_predicted, fit_size_model
+from .figures import PALETTE
 
 
 def plot_grouped(df, ylab=None, sporadics=True, **kwargs):

@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn import metrics
-from maps.utils import group_predicted, fit_size_model
+from maps.archive.utils import group_predicted, fit_size_model
 
 PALETTE = {
     "WT": "#9A9A9A",
