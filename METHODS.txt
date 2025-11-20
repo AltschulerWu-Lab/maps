@@ -1,0 +1,42 @@
+METHODS
+
+Quantification and statistical analysis
+
+Software
+All analyses were performed using Python v. 3.11. The analysis pipeline utilized the maps package (https://github.com/AltschulerWu-Lab/maps), a custom Python library for multimodal imaging analysis. 
+
+Imaging-based classifiers
+
+Model architecture
+We developed a multiclass deep learning classifier that integrates cellular profiles derived from multiple marker sets to discriminate between multiple genetic/phenotypic groups. The model architecture consists of four hierarchical components: (1) marker set-specific encoders that process single-cell features from independent marker sets (i.e., a set of four imaging markers imaged simultaneously), (2) single cell, single marker set classification heads that generate per-cell predictions from individual marker sets, (3) a cell pooling layer that aggregates single cell, single marker set representations within each cell line, and (4) a cell line-level classification head that integrates information across all marker set combinations to generate cell line-level predictions.
+
+Each marker set-specific encoder consisted of a batch normalization layer followed by a configurable number of fully connected layers. In the current analysis, encoders consisted of a single hidden layer with 16 units (d_model=16, n_layers=1), activated by GELU nonlinearity, followed by layer normalization and 0.3 dropout. Cell-level classification heads were implemented as linear layers with batch normalization, generating class probabilities for each individual cell. The line-level classification head aggregates pooled cell representations from all markers via concatenation and generates final sample-level class probabilities through a linear transformation with batch normalization.
+
+Model training
+Models were trained using a two-phase hierarchical training strategy implemented in PyTorch. In phase 1, marker-specific encoders and cell-level classification heads were trained using cell-level cross-entropy loss, with per-marker early stopping (patience=10 epochs). When a marker-specific encoder stopped improving (no decrease in loss for 10 consecutive epochs), its parameters were frozen while training continued for other markers until all encoders converged. In phase 2, all parameters were unfrozen and the full model was trained to optimize line-level (sample-level) cross-entropy loss with early stopping (patience=10 epochs). Both phases used the Adam optimizer with learning rate 5×10⁻³, beta parameters (0.9, 0.999), weight decay 1×10⁻⁵, and a step learning rate scheduler with step size 10 and gamma 0.5. Models were trained for up to 100 epochs per phase.
+
+i-MAP Scoring
+Each cell was represented as a high-dimensional feature vector in the image-based feature space. Multiple marker combinations were analyzed to capture complementary aspects of cellular phenotype (in this analysis: HSP70/SOD1, FUS/EEA1, and COX IV/Galectin3/α-tubulin). Models were trained to classify samples into multiple genetic/phenotypic categories, discriminating between disease subtypes and healthy controls (in this analysis: 4 classes representing wild-type controls and three familial genetic variants). 
+
+The model generates three types of classification scores: (1) cell-level predictions for each marker combination independently, (2) line-level predictions that aggregate information across all markers and cells within a sample, and (3) entropy-weighted predictions that combine per-marker predictions weighted inversely by their prediction entropy. For sample-level i-MAP scores, cell-level predictions were averaged across all cells from each well replicate, generating mean class probabilities. Line-level predictions aggregate across both cells and markers using learned pooling and concatenation operations. For comparing i-MAP scores between samples, we report the predicted probability of each class.
+
+To report classification accuracy, we assigned samples to the class with maximum predicted probability and compared against true labels. We report per-class accuracy and overall classification performance.
+
+Feature preprocessing
+Single-cell imaging features were extracted from high-content imaging data. Features were filtered to retain only intensity and spot-based measurements while excluding sum aggregations and specific fluorescence channels based on imaging modality. Features with more than 10% missing values were dropped, and remaining missing values were imputed with column means. Constant features (zero variance) were removed. Cells were filtered by nuclear area and cell area, removing cells in the bottom and top 5% quantiles of each distribution.
+
+For model training, features were standardized using scikit-learn's StandardScaler, fitted on training data and applied to both training and evaluation datasets. Feature scaling parameters (mean and standard deviation) were computed separately for each marker combination and preserved across train/test splits to prevent data leakage.
+
+Sample representation and batching
+During training, samples were represented by random samples of 250 cells per well replicate (n_cells=250). To balance class representation across genetic/phenotypic groups, samples were up-sampled to match the most prevalent class, ensuring equal representation of all classes in each training epoch. Batch size was set to 9 samples (batch_size=9).
+
+Sample splits
+Models were trained using two complementary strategies: (1) fixed train-test splits where specific samples were designated for training or testing, and (2) leave-one-out cross-validation where models were trained with one sample held out and predictions generated for that held-out sample. This process was repeated for each sample to generate unbiased predictions for all samples. Training and test sets maintained balanced representation of classes through up-sampling. Two models were evaluated: one trained on the training set and evaluated on the test set, and one trained on the test set and evaluated on the training set. This bidirectional evaluation strategy provides insight into model generalizability and consistency.
+
+Additional samples from related but distinct phenotypic groups were evaluated using models trained only on the primary sample groups, providing an independent assessment of whether these samples exhibit imaging phenotypes similar to specific trained classes.
+
+Evaluation and prediction aggregation
+For evaluation, models operated in eval mode where predictions were generated for individual samples without up-sampling. For each sample, 250 cells were randomly sampled 10 times (n_reps=10), and predictions were averaged across these replicates to produce stable sample-level estimates. Final predictions were computed by averaging replicate predictions and grouping by sample and class label. Three prediction strategies were compared: (1) per-marker predictions, (2) line-level predictions from the integrated model, and (3) entropy-weighted predictions that combine per-marker predictions weighted by prediction confidence.
+
+Statistical analysis
+Classification performance was evaluated using predicted class probabilities for each phenotypic/genetic group. For comparing predicted scores between groups, we computed mean probabilities and standard errors aggregated by sample. Model performance across different prediction strategies (per-marker, line-level, entropy-weighted) was compared to identify the most robust classification approach for distinguishing between classes from imaging data.
