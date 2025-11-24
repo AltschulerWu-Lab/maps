@@ -12,7 +12,7 @@
         "drop_sample_by_feature": {
             "drop_key": [
                 {"CellLines": ["C9014", "NS048", "FTD37"]},
-                {"Mutations": ["TDP43"]}
+                {"Mutations": ["TDP43", "C9orf72"]}
             ]
         },
         "select_sample_by_feature": {
@@ -39,7 +39,7 @@
             "model": {
                 "MultiAntibody": {
                     "model": {
-                        "n_classes": 4,
+                        "n_classes": 3,
                         "d_model": 16,
                         "n_layers": 1
                     },
@@ -51,18 +51,17 @@
             "seed": 47,
             "data_loader": {
                 "batch_size": 8,
-                "n_cells": 250,
+                "n_cells": 100,
                 "response_map": {
                     "Mutations": {
                         "WT": 0, 
                         "FUS": 1, 
                         "SOD1": 2, 
-                        "C9orf72": 3, 
-                        "sporadic": 3
+                        "sporadic": 0
                     }
                 } 
             },
             "fitter":  "leave_one_out"
         }
     }
-}   q
+}

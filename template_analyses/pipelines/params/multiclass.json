@@ -2,7 +2,7 @@
     "name": "multiclass", 
     "description": "Multiclass classification analysis. Models trained on all ALS genetic backgrounds and healthy controls. The multiclass model is applied to holdout cell lines from each genetic background and sporadic ALS cell lines.",
     "screen": "20250216_AWALS37_Full_screen_n96",
-    "antibodies": ["FUS/EEA1", "COX IV/Galectin3/atubulin"],
+    "antibodies": ["FUS/EEA1", "HSP70/SOD1",  "COX IV/Galectin3/atubulin"],
     "root": "/awlab/projects/2024_ALS/Experiments",
     "data_file": "Objects_Population - Nuclei Selected.txt",
     "eval_dir": "Evaluation1",
@@ -49,9 +49,10 @@
                 }
             },
             "seed": 47,
+            "reps": 3,
             "data_loader": {
                 "batch_size": 8,
-                "n_cells": 100,
+                "n_cells": 250,
                 "response_map": {
                     "Mutations": {
                         "WT": 0, 

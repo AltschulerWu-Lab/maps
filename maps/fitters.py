@@ -10,6 +10,7 @@ background. As a result, they return one dict per mutational background.
 
 import polars as pl
 import pandas as pd
+import numpy as np
 
 from typing import Dict
 from maps.models import BaseModel
@@ -24,7 +25,7 @@ from maps.multiantibody.config import DataLoaderConfig
 from maps.models import SKLearnModel, PyTorchModel
 
 import torch
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 import copy
 
 if TYPE_CHECKING:
@@ -278,7 +279,7 @@ def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     return out
 
 
-def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = [], seed: int = 47) -> Dict:
+def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = []) -> Dict:
     """Wrapper for sample split cross-validation with hold-out cell lines.
     
     Splits cell lines 50/50, trains two models reciprocally (each on one split,
@@ -290,7 +291,8 @@ def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = [], see
         model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
         holdout (List[str], optional): Cell lines to exclude from training.
             Defaults to [].
-        seed (int, optional): Random seed for reproducibility. Defaults to 47.
+        seed (int, optional): Random seed for reproducibility. If None, will check
+            if numpy seed has been set and use that; otherwise defaults to 47.
         
     Returns:
         Dict: Dictionary containing:
@@ -307,9 +309,9 @@ def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = [], see
     for i in range(reps):
         print(f"--- Replicate {i+1}/{reps} ---")
         if isinstance(model, SKLearnModel):
-            out_list.append(sample_split_sklearn(screen, model, holdout, seed + i))
+            out_list.append(sample_split_sklearn(screen, model, holdout))
         elif isinstance(model, PyTorchModel):
-            out_list.append(sample_split_pytorch(screen, model, holdout, seed + i))
+            out_list.append(sample_split_pytorch(screen, model, holdout))
         else:
             raise ValueError(f"Unsupported model type: {type(model)}")
 
@@ -334,8 +336,7 @@ def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = [], see
 def sample_split_pytorch(
     screen: "ScreenBase", 
     model: BaseModel, 
-    holdout: List = [], 
-    seed: int = 47) -> Dict:
+    holdout: List = []) -> Dict:
     """Sample split cross-validation for PyTorch models.
     
     Performs 50/50 cell line split with reciprocal training using DataLoader
@@ -366,7 +367,7 @@ def sample_split_pytorch(
     dataloader_config = DataLoaderConfig(**map_params.get("data_loader", {}))
     
     # Define 50/50 sample split by mutation using cellline_split
-    split = cellline_split(screen, train_prop=0.5, seed=seed, type="CellLines")
+    split = cellline_split(screen, train_prop=0.5, type="CellLines")
     split1_celllines = split["id_train"].to_series()
     split2_celllines = split["id_test"].to_series()
     
@@ -415,8 +416,7 @@ def sample_split_pytorch(
 def sample_split_sklearn(
     screen: 'ScreenBase', 
     model: BaseModel, 
-    holdout: List = [], 
-    seed: int = 47) -> Dict:
+    holdout: List = []) -> Dict:
     """Sample split cross-validation for sklearn models.
     
     Performs 50/50 cell line split with reciprocal training on well-averaged
@@ -442,7 +442,7 @@ def sample_split_sklearn(
     out = {}
     
     # Define 50/50 sample split by mutation and set sporadics as hold-out
-    split = cellline_split(screen, train_prop=0.5, seed=seed)
+    split = cellline_split(screen, train_prop=0.5, type="CellLines")
 
     if holdout is not None:
         id_holdout = screen.metadata \

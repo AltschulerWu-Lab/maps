@@ -33,6 +33,7 @@ def balanced_sample(
 import torch
 from typing import Dict, List
 from torch.utils.data import DataLoader
+import pandas as pd
 
 def integrated_gradients(
     dataloader: DataLoader,
@@ -41,7 +42,12 @@ def integrated_gradients(
     n_steps: int = 50,
     baseline: str = 'zeros'
 ):
-    """ Compute integrated gradients from fitted model"""
+    """ Compute integrated gradients from fitted model
+    
+    Returns:
+        pd.DataFrame: DataFrame with columns ['CellLine', 'Class', 'Feature_0', 'Feature_1', ...]
+                     Each row represents one cell line-class combination with averaged IG values
+    """
     fit.eval()
     device = next(fit.parameters()).device
     integrated_grads = {}
@@ -124,4 +130,41 @@ def integrated_gradients(
                 stacked = np.stack(class_grads[ab], axis=-1)  # shape (..., num_classes)
                 integrated_grads[ab].append(stacked)
 
-    return integrated_grads, cell_lines
+    # Convert to DataFrame format
+    results = []
+    
+    # Flatten cell_lines list (in case some are lists themselves)
+    flat_cell_lines = []
+    for cl in cell_lines:
+        if isinstance(cl, (list, tuple)):
+            flat_cell_lines.extend(cl)
+        else:
+            flat_cell_lines.append(cl)
+    
+    # Process each cell line
+    for cell_line_idx, cell_line in enumerate(flat_cell_lines):
+        # For each class
+        for class_idx in range(len(target_classes)):
+            # Concatenate features from all antibodies for this cell line and class
+            all_features = []
+            for ab in sorted(integrated_grads.keys()):
+                # Shape: (n_cells, n_features, n_classes)
+                ig_array = integrated_grads[ab][cell_line_idx]
+                
+                # Average over cells and extract this class
+                # ig_array[..., class_idx] gives (n_cells, n_features)
+                # Mean over cells (axis 0) gives (n_features,)
+                features_for_class = ig_array[..., class_idx].mean(axis=0)
+                all_features.append(features_for_class)
+            
+            # Concatenate all antibody features
+            all_features = np.concatenate(all_features)
+            
+            # Create row
+            row_dict = {'CellLine': cell_line, 'Class': target_classes[class_idx]}
+            for feat_idx, feat_val in enumerate(all_features):
+                row_dict[f'Feature_{feat_idx}'] = feat_val
+            
+            results.append(row_dict)
+    
+    return pd.DataFrame(results)

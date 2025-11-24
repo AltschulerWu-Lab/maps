@@ -32,9 +32,7 @@ def merge_metadata(screen: 'ScreenBase') -> pl.DataFrame:
     return metadata
 
 
-def cellline_split(
-    screen: 'ScreenBase', train_prop: float=0.5, type="ID", seed: int=47
-) -> Dict:
+def cellline_split(screen: 'ScreenBase', train_prop: float=0.5, type="ID") -> Dict:
     """ Splits cell lines into train / test sets by mutation."""
     assert screen.metadata is not None
     
@@ -44,12 +42,11 @@ def cellline_split(
     train = (
         metadata.select(['CellLines', 'Mutations'])
         .unique()
+        .sort(['Mutations', 'CellLines'])  # Add sort for deterministic ordering
         .to_pandas() 
         .groupby('Mutations')[['CellLines']]
         .apply(lambda x: 
-            x.sample(
-                frac=train_prop, 
-                random_state=seed)) 
+            x.sample(frac=train_prop)) 
         .reset_index(drop=True)
     )
     
@@ -63,12 +60,12 @@ def cellline_split(
     
     # Set train / test indices relative to feature matrix
     if type == "CellLines":
-        id_train = id_train.select(['CellLines']).unique()
-        id_test = id_test.select(['CellLines']).unique()
+        id_train = id_train.select(['CellLines']).unique().sort('CellLines')
+        id_test = id_test.select(['CellLines']).unique().sort('CellLines')
         return {'id_train': id_train, 'id_test': id_test}
     else:
-        id_train = id_train.select(['ID']).unique()
-        id_test = id_test.select(['ID']).unique()
+        id_train = id_train.select(['ID']).unique().sort('ID')
+        id_test = id_test.select(['ID']).unique().sort('ID')
         return {'id_train': id_train, 'id_test': id_test}
 
 
