@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: maps
-Version: 0.0.0
+Version: 0.1.0
 Summary: Pipeline for running ALS MAP scoring and related analyses
 Home-page: 
 Author: Karl Kumbier
@@ -18,6 +18,7 @@ Requires-Dist: scikit-learn
 Requires-Dist: numpy
 Requires-Dist: imblearn
 Requires-Dist: statsmodels
+Requires-Dist: torch>=2.7.1
 Dynamic: author
 Dynamic: author-email
 Dynamic: classifier
@@ -31,157 +32,280 @@ Dynamic: summary
 This vignette outlines basic setup and usage for the molecular als phenotype scores (MAPs) pipeline described in Kumbier et al. 2024. Currently, the pipeline supports imaging-based phenotype analysis. However, the pipeline design is fairly modular and can be readily extended to incorporate new data modalities.
 
 ## Installation
-`maps` can be installed directly from this repository using the steps below. A Python virtual environment (venv) creates a self-contained environment that isolates any changes from system level configuration. It is highly recommended that you install `maps` within a virtual environment to avoid any unexpected dependency or version issue. The package was developed and tested using `python3.12`.
 
+### Option 1: Using Pre-installed Conda Environment (Recommended)
+A pre-configured `maps` conda environment is available on the AW Lab server. **No local conda installation is required** - the commands below use the pre-installed conda at `/awlab/projects/2024_ALS/software/miniforge3/`.
+
+```bash
+# Initialize conda (uses the pre-installed version, no local installation needed)
+eval "$(/awlab/projects/2024_ALS/software/miniforge3/bin/conda shell.bash hook)"
+
+# Activate the pre-installed maps environment
+conda activate maps
 ```
+
+This will activate the existing `maps` environment without modifying or overwriting the installation. The `eval` command configures your shell to use the pre-installed conda, so you can simply run `conda activate maps` to access the environment.
+
+### Option 2: Install from GitHub with pip
+Alternatively, you can install `maps` directly from GitHub using pip. It is recommended to do this within a virtual environment:
+
+```bash
+# Create and activate a virtual environment (optional but recommended)
 python3.12 -m venv .venv
 source .venv/bin/activate
 
+# Install maps from GitHub
 pip install git+https://github.com/AltschulerWu-Lab/maps.git
 ```
 
 ### Analysis `params`
-To help ensure reproducibility, the `maps` pipeline is organized around parameter (json) files. Parameter files define complete analytical workflows including: which data are used, how data are pre-processed, what quality control analyses are performed, what model is used for classification, and what post-hoc summaries of the model are performed. The `maps` pacakge implements classes for parsing these parameter files and carying out specified analyses. Any analysis can be explicitly reproduced given its parameter file.
+To help ensure reproducibility, the `maps` pipeline is organized around parameter (json) files. Parameter files define complete analytical workflows including: which data are used, how data are pre-processed, what quality control analyses are performed, what model is used for classification, and what post-hoc summaries of the model are performed. The `maps` package implements classes for parsing these parameter files and carrying out specified analyses. Any analysis can be explicitly reproduced given its parameter file.
 
 **Analysis metadata params**
 
-- `name`: user-defined name for the analysis.
-- `root`: root directory (i.e., where all screen subdirectories are stored).
-- `screen`: screen identifier, specifying the experiment in which the data were generated. Typically, a screen corresponds to cell lines culturued and processed simultaneously. 
-- `eval_dir`: subdirectory of each plate directory containing data used in the analysis. Typically, this should be set as "Evaluation1" but may be changed if e.g., multiple imaging rounds were performed for the same plate.
+- `name`: user-defined name for the analysis
+- `description`: brief description of the analysis purpose
+- `screen`: screen identifier, specifying the experiment in which the data were generated. Typically, a screen corresponds to cell lines cultured and processed simultaneously
+- `antibodies`: list of antibody combinations to include in the analysis (used for multi-antibody analyses)
+- `root`: root directory where all screen subdirectories are stored
 - `data_file`: name of data file containing molecular profiles (e.g., imaging features)
+- `eval_dir`: subdirectory of each plate directory containing data used in the analysis. Typically "Evaluation1" but may be changed if multiple imaging rounds were performed
+- `result_dir`: directory where analysis results will be saved
 
-**Additional analysis params**
-- `preprocess`: dict specifying all preprocessing functions to be performed. The entries of this dict should be key-value pairs, keys indicating the name of preprocessing function to be performed (see `maps.preprocess`) and values a dict of kwargs for that function.
-- `analysis`: dict specifying all analyses to be performed. The entries of this dict should be key-value pairs, keys indicating the name of the analysis to be performed (see `maps.analyses`) and values a dict of kwargs for that analysis.
+**Preprocessing params**
+The `preprocess` dict specifies all preprocessing functions to be performed. Keys indicate the preprocessing function name and values provide kwargs for that function. Common preprocessing functions include:
 
+- `drop_na_features`: Remove features with high proportion of missing values (e.g., `{"na_prop": 0.1}`)
+- `drop_sample_by_feature`: Remove specific samples based on metadata (e.g., specific cell lines or mutations)
+- `select_sample_by_feature`: Keep only specific samples based on metadata (e.g., only DMSO-treated wells)
+- `drop_cells_by_feature_qt`: Remove cells with feature values in extreme quantiles (e.g., outlier cells by size)
+- `select_feature_types`: Keep only features matching regex pattern (e.g., intensity or spot features)
+- `drop_feature_types`: Remove features matching regex pattern (e.g., sum features or specific channels)
+- `drop_constant_features`: Remove features with no variance
 
+For the complete list of preprocessing functions and their parameters, see the processing documentation.
 
-```python
-import json
+**Analysis params**
+The `analysis` dict specifies all analyses to be performed. Currently supports:
 
-with open("./params.json", "r") as f:
-    params = json.load(f)
- 
-print(json.dumps(params, indent=4))
-```
+- `MAP`: Classification analysis parameters including:
+  - `model`: Model specification (e.g., `MultiAntibody` for multi-antibody data)
+  - `seed`: Random seed for reproducibility
+  - `reps`: Number of replicate runs
+  - `data_loader`: Data loading parameters including batch size, number of cells per sample, and response mapping
+  - `fitter`: Fitting strategy for train/test splits (e.g., `sample_split_mut` for mutation-based splits)
 
-    {
-        "name": "vignette_example",
-        "root": "/awlab/projects/2024_ALS/Experiments",
-        "screen": "20250216_AWALS37_Full_screen_n96",
-        "eval_dir": "Evaluation1",
-        "data_file": "Objects_Population - Nuclei Selected.txt",
-        "preprocess": {
-            "drop_na_features": {
-                "na_prop": 0.1
-            },
-            "select_sample_by_feature": {
-                "select_key": [
-                    {
-                        "Drugs": [
-                            "DMSO"
-                        ]
-                    },
-                    {
-                        "Mutations": [
-                            "WT",
-                            "C9orf72"
-                        ]
-                    }
-                ]
-            },
-            "select_feature_types": {
-                "feature_str": "^.*Intensity.*$|^.*Spot.*$"
-            },
-            "drop_feature_types": {
-                "feature_str": "^.*Sum$"
-            },
-            "drop_constant_features": {}
+**Example params file**
+
+```json
+{
+    "name": "binary", 
+    "description": "Binary classification analysis. Models trained to classify a single ALS genetic background vs health. Genetic-specific models applied to all ALS genetic backgrounds in eval set.",
+    "screen": "20250216_AWALS37_Full_screen_n96",
+    "antibodies": ["FUS/EEA1", "COX IV/Galectin3/atubulin"],
+    "root": "/awlab/projects/2024_ALS/Experiments",
+    "data_file": "Objects_Population - Nuclei Selected.txt",
+    "eval_dir": "Evaluation1",
+    "result_dir": "/home/kkumbier/als/analysis_results",
+    "preprocess": {
+        "drop_na_features": {"na_prop": 0.1},
+        "drop_sample_by_feature": {
+            "drop_key": [
+                {"CellLines": ["C9014", "NS048", "FTD37"]},
+                {"Mutations": ["TDP43"]}
+            ]
         },
-        "analysis": {
-            "PCAnalysis": {
-                "components": [
-                    1,
-                    2
-                ],
-                "hue": "Mutations"
-            },
-            "MAP": {
-                "model": {
-                    "BinaryLogistic": {
-                        "tol": 0.01,
-                        "solver": "saga"
-                    }
-                },
-                "response": "Mutations",
-                "fitter": "sample_split"
+        "select_sample_by_feature": {
+            "select_key": [
+                {"Drugs": ["DMSO"]}
+            ]
+        },
+        "drop_cells_by_feature_qt": {
+            "feature_filters": {
+                "Nucleus_Region_Area_[µm²]": 0.05,
+                "Cell_Region_Area_[µm²]": 0.05
             }
+        },
+        "select_feature_types": {
+            "feature_str": "^.*Intensity.*$|^.*Spot.*$"
+        },
+        "drop_feature_types": {
+            "feature_str": "^.*Sum.*$|^.*HOECHST.*$|^.*546.*$"
+        },
+        "drop_constant_features":{}
+    },
+    "analysis": {
+        "MAP": {
+            "model": {
+                "MultiAntibody": {
+                    "model": {
+                        "n_classes": 2,
+                        "d_model": 16,
+                        "n_layers": 1
+                    },
+                    "train": {
+                        "n_epochs": 100
+                    }
+                }
+            },
+            "seed": 47,
+            "reps": 3,
+            "data_loader": {
+                "batch_size": 8,
+                "n_cells": 250,
+                "response_map": {
+                    "Mutations": {
+                        "WT": 0, 
+                        "FUS": 1, 
+                        "SOD1": 1, 
+                        "C9orf72": 1, 
+                        "sporadic": 1
+                    }
+                } 
+            },
+            "fitter":  "sample_split_mut"
         }
     }
+}
+```
 
 
 ### Screens
-The `*Screen` classes provide the basic containers for loading and processing data / metadata. Data are loaded based on files / paths defined in `params` by calling `<screen>.load`. Calling `<screen>.preprocess` iterates over each preprocessing function defined in `params` and applies that function to the screen data / metadata.
+The `*Screen` classes provide the basic containers for loading and processing data and metadata. Data are loaded based on files/paths defined in `params` by calling `<screen>.load()`. Calling `<screen>.preprocess()` iterates over each preprocessing function defined in `params` and applies that function to the screen data/metadata.
 
-To enable extension to future data modalities, we defined the `ScreenBase` class to handle basic functionality around calling modules from the `maps` package (see `maps.screens`). Modality specific subclasses (e.g., `ImageScreen`) handle specifics around data I/O that are unique to each modality. For example, imaging profiles are derived from specific antibodies. Since a single screen may contain data for multiple antibodies, we allow antibodies to be explicitly defined when calling load (see below) *or* the `antibody` key may be defined in the params file.
+To enable extension to future data modalities, we defined the `ScreenBase` class to handle basic functionality around calling modules from the `maps` package. Modality-specific subclasses (e.g., `ImageScreen`) handle specifics around data I/O that are unique to each modality.
 
+For complete documentation of Screen classes and their methods, see the [screens documentation](/home/kkumbier/maps/docs/maps/screens.html).
+
+#### ImageScreen
+Use `ImageScreen` for loading data from a **single antibody combination**. Data are loaded as polars DataFrames with:
+- `screen.data`: Single-cell measurements (one row per cell)
+- `screen.metadata`: Well-level metadata (one row per imaging well)
+
+Both dataframes share an `ID` column that uniquely identifies each imaging well.
 
 ```python
 from maps.screens import ImageScreen
 from maps.processing import *
 
+# Load params from file
+import json
+with open("/home/kkumbier/maps/template_analyses/pipelines/params/binary.json", "r") as f:
+    params = json.load(f)
+
+# Create screen and load single antibody data
 screen = ImageScreen(params)
 screen.load(antibody="COX IV/Galectin3/atubulin")
 
 print(screen.data.head())
 print(screen.metadata.head())
 
+# Apply preprocessing steps defined in params
 screen.preprocess()
 ```
 
-    shape: (5, 4_763)
-    ┌───────────┬───────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬──────────┐
-    │ Total_Spo ┆ Relative_ ┆ Number_of ┆ Number_of ┆ … ┆ Membrane_ ┆ Membrane_ ┆ Membrane_ ┆ ID       │
-    │ t_Area    ┆ Spot_Inte ┆ _Spots    ┆ _Spots_pe ┆   ┆ Region_Al ┆ Region_Al ┆ Region_Al ┆ ---      │
-    │ ---       ┆ nsity     ┆ ---       ┆ r_Area_of ┆   ┆ exa_647_H ┆ exa_647_G ┆ exa_647_G ┆ str      │
-    │ f32       ┆ ---       ┆ f32       ┆ _Ce…      ┆   ┆ ara…      ┆ abo…      ┆ abo…      ┆          │
-    │           ┆ f32       ┆           ┆ ---       ┆   ┆ ---       ┆ ---       ┆ ---       ┆          │
-    │           ┆           ┆           ┆ f32       ┆   ┆ f32       ┆ f32       ┆ f32       ┆          │
-    ╞═══════════╪═══════════╪═══════════╪═══════════╪═══╪═══════════╪═══════════╪═══════════╪══════════╡
-    │ 106.0     ┆ 0.049825  ┆ 5.0       ┆ 0.002924  ┆ … ┆ 0.258299  ┆ 0.001769  ┆ 0.010958  ┆ 20240420 │
-    │           ┆           ┆           ┆           ┆   ┆           ┆           ┆           ┆ 26-1-1   │
-    │ 172.0     ┆ 0.035026  ┆ 8.0       ┆ 0.002895  ┆ … ┆ 0.242899  ┆ 0.001589  ┆ 0.010587  ┆ 20240420 │
-    │           ┆           ┆           ┆           ┆   ┆           ┆           ┆           ┆ 26-1-1   │
-    │ 150.0     ┆ 0.0413    ┆ 8.0       ┆ 0.00641   ┆ … ┆ 0.309679  ┆ 0.001512  ┆ 0.010045  ┆ 20240420 │
-    │           ┆           ┆           ┆           ┆   ┆           ┆           ┆           ┆ 26-1-1   │
-    │ 167.0     ┆ 0.015568  ┆ 11.0      ┆ 0.002201  ┆ … ┆ 0.349451  ┆ 0.002056  ┆ 0.013293  ┆ 20240420 │
-    │           ┆           ┆           ┆           ┆   ┆           ┆           ┆           ┆ 26-1-1   │
-    │ 130.0     ┆ 0.060189  ┆ 7.0       ┆ 0.008294  ┆ … ┆ 0.231552  ┆ 0.001488  ┆ 0.009766  ┆ 20240420 │
-    │           ┆           ┆           ┆           ┆   ┆           ┆           ┆           ┆ 26-1-1   │
-    └───────────┴───────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴──────────┘
-    shape: (5, 12)
-    ┌─────┬────────┬──────┬───────────┬───┬────────────────────┬─────────────┬────────────────┬────────┐
-    │ Row ┆ Column ┆ Well ┆ CellLines ┆ … ┆ Antibody           ┆ Channel     ┆ ID             ┆ NCells │
-    │ --- ┆ ---    ┆ ---  ┆ ---       ┆   ┆ ---                ┆ ---         ┆ ---            ┆ ---    │
-    │ str ┆ str    ┆ str  ┆ str       ┆   ┆ str                ┆ str         ┆ str            ┆ u32    │
-    ╞═════╪════════╪══════╪═══════════╪═══╪════════════════════╪═════════════╪════════════════╪════════╡
-    │ 1   ┆ 1      ┆ A1   ┆ NS025     ┆ … ┆ COX IV/Galectin3/a ┆ 488/568/647 ┆ 2024042026-1-1 ┆ 515    │
-    │     ┆        ┆      ┆           ┆   ┆ tubulin            ┆             ┆                ┆        │
-    │ 1   ┆ 2      ┆ A2   ┆ NS025     ┆ … ┆ COX IV/Galectin3/a ┆ 488/568/647 ┆ 2024042026-1-2 ┆ 792    │
-    │     ┆        ┆      ┆           ┆   ┆ tubulin            ┆             ┆                ┆        │
-    │ 1   ┆ 3      ┆ A3   ┆ ND41003   ┆ … ┆ COX IV/Galectin3/a ┆ 488/568/647 ┆ 2024042026-1-3 ┆ 417    │
-    │     ┆        ┆      ┆           ┆   ┆ tubulin            ┆             ┆                ┆        │
-    │ 1   ┆ 4      ┆ A4   ┆ ND41003   ┆ … ┆ COX IV/Galectin3/a ┆ 488/568/647 ┆ 2024042026-1-4 ┆ 700    │
-    │     ┆        ┆      ┆           ┆   ┆ tubulin            ┆             ┆                ┆        │
-    │ 1   ┆ 5      ┆ A5   ┆ ALS1      ┆ … ┆ COX IV/Galectin3/a ┆ 488/568/647 ┆ 2024042026-1-5 ┆ 505    │
-    │     ┆        ┆      ┆           ┆   ┆ tubulin            ┆             ┆                ┆        │
-    └─────┴────────┴──────┴───────────┴───┴────────────────────┴─────────────┴────────────────┴────────┘
+#### ImageScreenMultiAntibody
+Use `ImageScreenMultiAntibody` for loading data from **multiple antibody combinations** simultaneously. This class is designed for multi-modal analyses where data from different antibody stains need to be processed together. Data are loaded as dictionaries of polars DataFrames:
+- `screen.data`: Dictionary where keys are antibody names and values are single-cell measurement DataFrames
+- `screen.metadata`: Dictionary where keys are antibody names and values are well-level metadata DataFrames
+
+This structure allows preprocessing to be applied independently to each antibody while maintaining alignment across samples.
+
+```python
+from maps.screens import ImageScreenMultiAntibody
+
+# Create multi-antibody screen
+mscreen = ImageScreenMultiAntibody(params)
+mscreen.load(antibody=["FUS/EEA1", "COX IV/Galectin3/atubulin"])
+
+# Access data for each antibody
+print("Available antibodies:", list(mscreen.data.keys()))
+print("\nFUS/EEA1 data:", mscreen.data["FUS/EEA1"].head())
+print("\nCOX IV data:", mscreen.data["COX IV/Galectin3/atubulin"].head())
+
+# Preprocessing is applied to each antibody independently
+mscreen.preprocess()
+```
+
+**Key differences:**
+- `ImageScreen`: Single DataFrame for data and metadata
+- `ImageScreenMultiAntibody`: Dictionary of DataFrames (one per antibody)
+
+#### Merging Single-Antibody Screens
+
+The `merge_screens_to_multiantibody` function allows you to combine multiple `ImageScreen` instances (each containing data for a single antibody) into a single `ImageScreenMultiAntibody` instance. This is useful when you have processed multiple antibodies separately and want to combine them for multi-modal analysis.
+
+**Basic Usage:**
+
+```python
+from maps.screens import ImageScreen, merge_screens_to_multiantibody
+import json
+
+# Load parameters for each antibody
+with open("params.json", "r") as f:
+    base_params = json.load(f)
+
+# Create and load individual screens
+params1 = base_params.copy()
+params1["antibody"] = "FUS/EEA1"
+
+params2 = base_params.copy()
+params2["antibody"] = "COX IV/Galectin3/atubulin"
+
+screen1 = ImageScreen(params1)
+screen1.load(antibody="FUS/EEA1")
+screen1.preprocess()
+
+screen2 = ImageScreen(params2)
+screen2.load(antibody="COX IV/Galectin3/atubulin")
+screen2.preprocess()
+
+# Merge into multi-antibody screen
+screens_dict = {
+    "FUS/EEA1": screen1,
+    "COX IV/Galectin3/atubulin": screen2
+}
+
+multi_screen = merge_screens_to_multiantibody(screens_dict)
+
+# The merged screen has the multi-antibody structure
+print(list(multi_screen.data.keys()))  # ['FUS/EEA1', 'COX IV/Galectin3/atubulin']
+```
+
+**Parameter Merging:**
+
+The function intelligently merges parameters from individual screens:
+
+- **`antibodies` field**: Set to list of antibody names from the input dictionary keys
+- **`analysis` parameters**: Must be identical across all screens (validated)
+- **`preprocess` parameters**: 
+  - If identical across screens → single preprocessing dict
+  - If different → nested dict keyed by antibody name
+
+Example of antibody-specific preprocessing in merged params:
+```json
+{
+  "preprocess": {
+    "FUS/EEA1": {
+      "drop_na_features": {"na_prop": 0.05}
+    },
+    "COX IV/Galectin3/atubulin": {
+      "drop_na_features": {"na_prop": 0.1}
+    }
+  }
+}
+```
+
+The `ImageScreenMultiAntibody.preprocess()` method automatically detects and handles both unified and antibody-specific preprocessing formats.
+
+**Requirements:**
+- All input screens must be loaded (`screen.loaded == True`)
+- All screens must have identical analysis configurations
+- Dictionary keys should be the antibody names
 
 
 ### Exploratory data analysis (EDA) 
-Functions for generating common EDA / quality control figures are defined in `maps.eda`. A list of figures to be generated can be specified in `params`, and subsequently generated by calling `screen.eda`. Alternatively, these functions can be called directly on a `BaseScreen` object. 
-
+Functions for generating common EDA and quality control figures are defined in `maps.figures`. These can be called directly on `Screen` objects. For example:
 
 ```python
 from maps.figures import plot_cell_count, PALETTE
@@ -192,39 +316,12 @@ fig = plot_cell_count(
     height=4, 
     aspect=1.2
 )
-
 fig.show()
 ```
 
+Quality control plots can help identify outlier samples. For instance, if a cell line shows unusually low cell counts, you can drop it using the `maps.processing.drop_sample_by_feature` function (or specify this in the `params` file preprocessing steps).
 
-    
-![png](README_files/README_6_0.png)
-    
-
-
-In the figure above, we notice C9014 has an unusually low cell count. We can drop this cell line from our screen using the `maps.preprocess.drop_sample_by_feature` function. Note that if we knew *a priori* that we wanted to drop C9014, we could also specify this preprocessing step in the `params` file.
-
-
-```python
-screen = drop_sample_by_feature(screen, drop_key=[{"CellLines": ["C9014"]}])
-
-fig = plot_cell_count(
-    screen, 
-    sharex=False, 
-    height=4, 
-    aspect=1.2
-)
-fig.show()
-```
-
-
-    
-![png](README_files/README_8_0.png)
-    
-
-
-Functions for running and visualizing PCA results are also available in `maps.eda`. These can be called directly on a `BaseScreen` object. PCA is performed on molecular profiles (e.g., imaging features) averaged at the level of `ID`. In the case of imaging data, this corresponds to averaging single cell measurements within each imaging well.
-
+PCA is another useful exploratory tool. PCA is performed on molecular profiles (e.g., imaging features) averaged at the level of `ID` (imaging wells):
 
 ```python
 from maps.analyses import PCA
@@ -235,50 +332,51 @@ pca.fit()
 
 fig = plot_pca(pca, palette=PALETTE)
 fig.show()
-
 ```
 
+### Models and Fitters
 
-    
-![png](README_files/README_10_0.png)
-    
-
-
-### MAP score analysis
-The `MAP` analysis class provides the core functionality for computing MAP scores. MAP scores are essentially predicted probabilities from classification models trained to differentiate selected ALS subgroups from healthy controls. Scores are always generated for cell lines held-out from model training. The `MAP` class provides the flexibility to define:
+The `maps` pipeline provides flexible infrastructure for classification analyses through the `MAP` analysis class. MAP scores are predicted probabilities from classification models trained to differentiate ALS subgroups from healthy controls. Scores are always generated for samples held-out from model training.
 
 #### Models
-The specific model used for classification can be one defined in `maps.models` or a new user-defined model. User-defined models should extend the `BaseModel` class and implement functions: `fit_` (returning a fitted model), `predict_` (returning model predicted probabilities), and `importance_` (returning model feature importances).
+The specific model used for classification can be one defined in `maps.models` or a new user-defined model. User-defined models should extend the `BaseModel` class and implement:
+- `fit_()`: Returns a fitted model
+- `predict_()`: Returns model predicted probabilities
+- `importance_()`: Returns model feature importances (optional)
+
+Available models include:
+- `MultiAntibody`: Multi-modal transformer model for processing multiple antibody stains
+- `BinaryLogistic`: Logistic regression for binary classification
+- `Delearner`: Two-layer neural network with delearning capabilities
+
+Model parameters (e.g., epochs, batch size, architecture) are specified in the `params` file under `analysis.MAP.model`.
+
+For complete documentation of all available models and their parameters, see the [models documentation](/home/kkumbier/maps/docs/maps/models.html).
 
 #### Fitters
-Fitters define how data should be split for training MAP models and evaluating MAP scores (i.e., test set data). These functions operate on a `*Screen` and `BaseModel`, split data according to user specifications, train model(s) on the resulting split data, and generate MAP scores from fitted models.
+Fitters define how data should be split for training and evaluation. They operate on a `*Screen` object and `BaseModel`, splitting data according to user specifications, training model(s) on the resulting splits, and generating predictions on held-out data.
 
-Both models and fitters should be defined in `params`. In this example, we use the `Delearner` model: a two-layer FCNN with a binary cross entropy loss (to predict classes) and negative gradient MSE loss (to de-learn cell count). Additional parameters for this model (e.g., epochs and batch size) are specified in `params`. We use the `sample_split` fitter, which splits cell lines into two equally sized groups, trains a model on single cell measurements for each group of cell lines, and evaluates predictions on the hold-out set of cell lines. The figure below shows MAP scores averaged within each cell line.
+Available fitters include:
+- `sample_split`: Splits samples into train/test sets
+- `sample_split_mut`: Mutation-aware splitting for genetic subgroup analyses
+- `cross_validation`: K-fold cross-validation
 
+Both models and fitters are specified in the `params` file under the `analysis.MAP` section.
 
+For complete documentation of all available fitters and their parameters, see the [fitters documentation](/home/kkumbier/maps/docs/maps/fitters.html).
 
-```python
-from maps.fitters import *
-from maps.analyses import MAP
-from maps.figures import plot_grouped
+### Example Analysis Workflows
 
-map_analysis = MAP(screen)
-map_analysis.fit()
-
-fig = plot_grouped(
-    map_analysis.fitted["predicted"], 
-    y="Ypred", 
-    x="CellLines", 
-    hue="Mutations",
-    palette=PALETTE
-)
-
-fig.set_size_inches(8, 5)
-fig.show()
+Complete analysis workflows demonstrating the full pipeline are available in:
+```
+/home/kkumbier/maps/template_analyses/pipelines/
 ```
 
+These notebooks provide examples of:
+- Training classification models (`train_models.ipynb`)
+- Running complete MAP analyses (`maps_analysis.ipynb`)
+- Post-hoc interpretability analyses (`posthoc_imaps.ipynb`, `posthoc_markers.ipynb`)
+- Generating analysis notebooks programmatically (`generate_notebooks.py`)
 
-    
-![png](README_files/README_12_0.png)
-    
+See the `params/` subdirectory for example parameter files used in these workflows.
 

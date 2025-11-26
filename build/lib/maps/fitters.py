@@ -10,16 +10,22 @@ background. As a result, they return one dict per mutational background.
 
 import polars as pl
 import pandas as pd
+import numpy as np
 
 from typing import Dict
 from maps.models import BaseModel
-from maps.processing import select_sample_by_feature
-from maps.fitter_utils import cellline_split
-from maps.multiantibody.data_loaders import create_multiantibody_dataloader
+from maps.fitter_utils import (
+    cellline_split, 
+    fit_split, 
+    get_mutation_celllines, 
+    merge_metadata
+)
 
 from maps.multiantibody.config import DataLoaderConfig
+from maps.models import SKLearnModel, PyTorchModel
 
-from typing import TYPE_CHECKING, List
+import torch
+from typing import TYPE_CHECKING, List, Optional
 import copy
 
 if TYPE_CHECKING:
@@ -27,77 +33,136 @@ if TYPE_CHECKING:
     from maps.screens import ImageScreenMultiAntibody
 
 # --- Leave one out training loops ---
-def leave_one_out_mut(
-    screen: 'ScreenBase', model: BaseModel) -> Dict:
-    """ Wapper for running `leave_one_out` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
-    """
+def leave_one_out_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
+    """Wrapper for running leave-one-out fitter by mutational background.
     
-    mutations = screen.metadata["Mutations"].unique()
+    Binary classifiers for <mutation> vs WT will be run for all ALS mutational 
+    backgrounds, excluding sporadics. Each mutation is trained separately using
+    leave-one-out cross-validation on cell lines.
+    
+    Args:
+        screen (ScreenBase): Screen object containing data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        
+    Returns:
+        Dict[str, Dict]: Dictionary keyed by mutation name, each containing:
+            - `fitted` (list): List of fitted models
+            - `predicted` (pl.DataFrame): Predictions with metadata
+            - `importance` (pd.DataFrame or None): Feature importances
+            - Additional keys depending on model type
+    """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
+    
+    metadata = merge_metadata(screen)
+    mutations = metadata["Mutations"].unique().sort()
     mutations = set(mutations) - set(["WT", "sporadic"])
     out = {}
     
     for m in mutations:
-        print(f"Training {m}...") 
-        
-        # Set sALS cell lines as holdouts
+        print(f"Training {m}...")
         mutations_holdout = list(mutations - {m}) + ["sporadic"]
-        
-        holdout = screen.metadata \
-            .filter(pl.col("Mutations").is_in(mutations_holdout)) \
-            .select("CellLines") \
-            .to_series() \
-            .to_list()
-            
+        holdout = get_mutation_celllines(metadata, mutations_holdout)
         out[m] = leave_one_out(screen, model, holdout)
          
     return out
 
-def leave_one_out(
-    screen: "ScreenBase", model: BaseModel, holdout: List|None=None):
-    """Fit models with one cell line removed and evaluates prediction on 
-    hold-out cell line. Optionally include additional set of cell lines as holdouts.
+def leave_one_out(screen: 'ScreenBase', model: BaseModel, holdout: List = []) -> Dict:
+    """Wrapper for leave-one-out cross-validation.
+    
+    Dispatches to sklearn or pytorch implementation based on model type. Leaves
+    one cell line out at a time, trains on remaining cell lines, and predicts
+    on the held-out cell line plus any additional holdout cell lines specified.
+    
+    Args:
+        screen (ScreenBase): Screen object containing data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        holdout (List[str], optional): Additional cell lines to hold out from 
+            training. Defaults to [].
+            
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of fitted models (one per cell line)
+            - `predicted` (pl.DataFrame): Predictions with metadata
+            - `importance` (pd.DataFrame or None): Feature importances
+            - Additional keys for PyTorch models (scalers, training_lines)
     """
+    metadata = merge_metadata(screen)
+    holdout += get_mutation_celllines(metadata, ["sporadic"])
+    
+    if isinstance(model, SKLearnModel):
+        return leave_one_out_sklearn(screen, model, holdout)
+    elif isinstance(model, PyTorchModel):
+        return leave_one_out_pytorch(screen, model, holdout)
+    else:
+        raise ValueError(f"Unsupported model type: {type(model)}")
+
+
+def leave_one_out_sklearn(
+    screen: "ScreenBase", 
+    model: BaseModel, 
+    holdout: List = []) -> Dict:
+    """Leave-one-out cross-validation for scikit-learn models.
+    
+    Iterates through each cell line, training on all other cell lines and 
+    predicting on the held-out cell line. Models are trained on well-averaged
+    features.
+    
+    Args:
+        screen (ScreenBase): Screen object with data and metadata.
+        model (BaseModel): SKLearnModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+            
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of fitted model copies
+            - `predicted` (pl.DataFrame): Predictions joined with metadata
+            - `importance` (pd.DataFrame): Feature importances from each fold
+    """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
     y = screen.get_response() 
     x = screen.get_data()
     
     # Get unique cell lines and exclude test cell lines
-    cell_lines = screen.metadata \
-        .select("CellLines") \
-        .unique() \
-        .to_series() \
+    cell_lines = (
+        screen.metadata
+        .select("CellLines")
+        .unique()
+        .sort("CellLines")
+        .to_series()
         .to_list()
+    )
     
-    if holdout is not None:
-        cell_lines = set(cell_lines) - set(holdout)
+    cell_lines = set(cell_lines) - set(holdout)
     
-    fitted = []
-    predicted = []
-    importance = []
+    fitted, predicted, importance = [], [], []
      
     for cl in cell_lines: 
         cell_lines_test = [cl]
-       
-        if holdout is not None:
-           cell_lines_test = cell_lines_test + holdout
+        cell_lines_test = cell_lines_test + holdout
         
         # Create train and test indices
         id_train = screen.metadata \
             .filter(~pl.col("CellLines").is_in(cell_lines_test)) \
-            .select("ID")
-            
+            .select("ID") \
+            .to_series()
+
         id_test = screen.metadata \
             .filter(pl.col("CellLines").is_in(cell_lines_test)) \
-            .select("ID")
+            .select("ID") \
+            .to_series()
         
         # Fit model and make predictions
-        fitted_cl = model.fit(x=x, y=y, id_train=id_train)
-        predicted_cl = model.predict(fitted_cl, x=x, id_test=id_test)
+        model.fit(x=x, y=y, id_train=id_train)
+        predicted_cl = model.predict(x=x, id_test=id_test)
         predicted_cl= predicted_cl.with_columns(pl.lit(cl).alias("Holdout"))
         
         # Merge results
         predicted.append(predicted_cl.join(screen.metadata, on="ID"))
-        fitted.append(fitted_cl)
-        importance.append(model.get_importance(fitted_cl, x))
+        fitted.append(copy.deepcopy(model))
+        importance.append(model.get_importance(x))
       
     out = {}  
     out["fitted"] = fitted
@@ -106,124 +171,290 @@ def leave_one_out(
     return out
         
 
-def leave_one_out_dataloader(
-    screen: "ImageScreenMultiAntibody", 
+def leave_one_out_pytorch(
+    screen: "ScreenBase", 
     model: BaseModel, 
-    holdout: List|None=None
-):
+    holdout: List = []) -> Dict:
+    """Leave-one-cell-line-out classification for PyTorch models.
+    
+    Trains PyTorch models using DataLoader batching on single-cell data.
+    Each iteration holds out one cell line for testing while training on all
+    remaining cell lines.
+    
+    Args:
+        screen (ScreenBase): Screen object (ImageScreen or ImageScreenMultiAntibody).
+        model (BaseModel): PyTorchModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+            
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of fitted model copies (moved to CPU)
+            - `predicted` (pl.DataFrame): Concatenated predictions
+            - `scalers` (list): Feature scalers for each fold
+            - `training_lines` (list): Cell lines used in training
+            - `importance` (None): Not implemented for PyTorch models
     """
-    Leave-one-cell-line-out cross-validation using DataLoader interface.
-    """
-    dataloader_config = screen.params.get("analysis").get("MAP", None)
-    if dataloader_config is None:
-        dataloader_config = DataLoaderConfig()
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
 
-    cell_lines = screen.metadata["CellLines"].unique().to_list()
-    if holdout is not None:
-        cell_lines = list(set(cell_lines) - set(holdout))
+    map_params = screen.params.get("analysis").get("MAP", None)
+    assert map_params is not None, "MAP parameters not found"
+    
+    # Set configs for batch loading 
+    dataloader_config = DataLoaderConfig(**map_params.get("data_loader", {}))
 
-    fitted = []
-    predicted = []
+    # Get all cell lines
+    if isinstance(screen.metadata, dict):
+        cell_lines = [s["CellLines"].unique().sort() for s in screen.metadata.values()]
+        cell_lines = pl.concat(cell_lines).unique().sort().to_list()
+    else:
+        cell_lines = screen.metadata["CellLines"].unique().sort().to_list()
+    cell_lines = list(set(cell_lines) - set(holdout))
+
+    fitted, predicted, scalers_list, split = [], [], [], []
+
     for cl in cell_lines:
-        cell_lines_test = [cl]
-        if holdout is not None:
-            cell_lines_test += holdout
-
-        # Split metadata for train/test
-        train_screen = copy.deepcopy(screen)
-        test_screen = copy.deepcopy(screen)
-        for ab in screen.data.keys():
-            train_meta = screen.metadata[ab].filter(
-                ~pl.col("CellLines").is_in(cell_lines_test)
-            )
-            
-            test_meta = screen.metadata[ab].filter(
-                pl.col("CellLines").is_in(cell_lines_test)
-            )
-            
-            train_screen.metadata[ab] = train_meta
-            test_screen.metadata[ab] = test_meta
-
-            train_screen.data[ab] = screen.data[ab].filter(
-                pl.col("ID").is_in(train_meta.select("ID"))
-            )
-
-            test_screen.data[ab] = screen.data[ab].filter(
-                pl.col("ID").is_in(test_meta.select("ID"))
-            )
-
-        # Create dataloaders
-        from maps.multiantibody.data_loaders import create_multiantibody_dataloader
-        train_loader = create_multiantibody_dataloader(
-            train_screen, shuffle=True, **dataloader_config
-        )
+        # Define test set: current cell line + holdout
+        print(f"---Training hold-out: {cl}---")
+        cell_lines_test = set([cl] + holdout)
+        train_celllines = list(set(cell_lines) - cell_lines_test)
+        split.append(train_celllines)
         
-        test_loader = create_multiantibody_dataloader(
-            test_screen, shuffle=False, **dataloader_config
+        # Train and predict for current holdout cell line
+        fit_model, ypred, scalers = fit_split(
+            screen, model, train_celllines, dataloader_config
         )
 
-        # Fit and predict
-        fitted_cl = model.fit(data_loader=train_loader)
-        ypred = model.predict(fitted_cl, data_loader=test_loader)
-        # Attach cell line info to predictions as needed
+        predicted.append(ypred)
+        fitted_model = getattr(fit_model, 'model', fit_model)
 
-        # Collect results
-        predicted.append( ... )  # format as needed
-        fitted.append(fitted_cl)
+        if isinstance(fitted_model, torch.nn.Module):
+            fitted.append(copy.deepcopy(fitted_model.to("cpu")))
+        else:
+            fitted.append(copy.deepcopy(fitted_model))
+            
+        scalers_list.append(scalers)
 
-    # Combine results as in leave_one_out
+    # Use Polars concat for predictions
     out = {
         "fitted": fitted,
-        "predicted": ...,
-        "importance": None  # or as appropriate
+        "predicted": pl.concat(predicted),
+        "scalers": scalers_list,
+        "training_lines": cell_lines,
+        "importance": None
     }
+    
     return out
 
 # --- Sample split training loops ---
 def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
-    """ Wapper for running `sample_split` fitter by mutational background. Binary classifiers for <mutation> vs WT will be run for all ALS mutational backgrounds, excluding sporadics—which receive special treatment in sample_split.
+    """Wrapper for running sample_split fitter by mutational background.
+    
+    Binary classifiers for <mutation> vs WT will be run for all ALS mutational 
+    backgrounds, excluding sporadics. For each mutation, performs a 50/50 sample
+    split with reciprocal training and prediction.
+    
+    Args:
+        screen (ScreenBase): Screen object containing data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        
+    Returns:
+        Dict[str, Dict]: Dictionary keyed by mutation name, each containing:
+            - `fitted` (list): List of fitted models (2 per mutation)
+            - `predicted` (pl.DataFrame): Predictions with metadata
+            - `training_lines` (list): Cell lines in each training split
+            - Additional keys depending on model type
     """
-    
-    mutations = screen.metadata["Mutations"].unique()
-    mutations = list(set(mutations) - set(["WT", "sporadic"]))
-    
-    x_full = screen.data
-    xmeta_full = screen.metadata
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
+
+    metadata = merge_metadata(screen)
+    mutations = metadata["Mutations"].unique().sort()
+    mutations = set(mutations) - set(["WT", "sporadic"])
     
     out = {}
     for m in mutations:
         print(f"Training {m}...")
-        select_key = [{"Mutations": ["WT", "sporadic", m]} ]
-        screen = select_sample_by_feature(screen, select_key=select_key)
-        
-        # Set sALS cell lines as holdouts
-        holdout = screen.metadata.filter(pl.col("Mutations") == "sporadic") \
-            .select("CellLines") \
-            .to_series() \
-            .to_list()
-            
+        mutations_holdout = list(mutations - {m}) + ["sporadic"]
+        holdout = get_mutation_celllines(metadata, mutations_holdout)
         out[m] = sample_split(screen, model, holdout)
-        
-        screen.data = x_full
-        screen.metadata = xmeta_full
         
     return out
 
-def sample_split(
-    screen: 'ScreenBase', model: BaseModel, 
-    holdout: List|None=None, seed: int=47) -> Dict:
-    """ Splits data into two equally sized groups. Models are fit to each group and predictions are generated for the held-out samples. Sporadics are always dropped from training and evaluated on testing.
+
+def sample_split(screen: 'ScreenBase', model: BaseModel, holdout: List = []) -> Dict:
+    """Wrapper for sample split cross-validation with hold-out cell lines.
+    
+    Splits cell lines 50/50, trains two models reciprocally (each on one split,
+    predicting on the other), and combines predictions. Supports multiple 
+    replicates via params configuration.
+    
+    Args:
+        screen (ScreenBase): Screen object with data and metadata.
+        model (BaseModel): Model instance (SKLearnModel or PyTorchModel).
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+        seed (int, optional): Random seed for reproducibility. If None, will check
+            if numpy seed has been set and use that; otherwise defaults to 47.
+        
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): List of all fitted models from all replicates
+            - `predicted` (pl.DataFrame): Concatenated predictions from replicates
+            - `training_lines` (list): Cell lines in each training split
+            - Additional keys depending on model type
     """
+    metadata = merge_metadata(screen)
+    holdout += get_mutation_celllines(metadata, ["sporadic"])
+
+    reps = screen.params.get("analysis").get("MAP", {}).get("reps", 1)
+    out_list = []
+    for i in range(reps):
+        print(f"--- Replicate {i+1}/{reps} ---")
+        if isinstance(model, SKLearnModel):
+            out_list.append(sample_split_sklearn(screen, model, holdout))
+        elif isinstance(model, PyTorchModel):
+            out_list.append(sample_split_pytorch(screen, model, holdout))
+        else:
+            raise ValueError(f"Unsupported model type: {type(model)}")
+
+    # Reformat output list into dict matching sample_split_* structure
+    keys = out_list[0].keys()
+    out = {}
+    for k in keys:
+        if k == 'predicted':
+            dfs = [d[k] for d in out_list if d[k] is not None]
+            out[k] = pl.concat(dfs)
+        elif k == 'importance':
+            out[k] = None
+        else:
+            vals = []
+            for d in out_list:
+                vals.extend(d[k])
+            out[k] = vals
+    
+    return out
+
+
+def sample_split_pytorch(
+    screen: "ScreenBase", 
+    model: BaseModel, 
+    holdout: List = []) -> Dict:
+    """Sample split cross-validation for PyTorch models.
+    
+    Performs 50/50 cell line split with reciprocal training using DataLoader
+    batching on single-cell data. Each model is trained on one split and 
+    predicts on the complementary split plus holdout cell lines.
+    
+    Args:
+        screen (ScreenBase): Screen object (ImageScreen or ImageScreenMultiAntibody).
+        model (BaseModel): PyTorchModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+        seed (int, optional): Random seed for split generation. Defaults to 47.
+        
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): Two fitted models (moved to CPU)
+            - `predicted` (pl.DataFrame): Concatenated predictions
+            - `training_lines` (list): Cell lines in each training split (2 lists)
+            - `scalers` (list): Feature scalers for each split (2 scalers)
+            - `importance` (None): Not implemented for PyTorch models
+    """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
+    assert isinstance(model, PyTorchModel), "model must be a PyTorchModel"
+    
+    map_params = screen.params.get("analysis").get("MAP", None)
+    assert map_params is not None, "MAP parameters not found"
+    dataloader_config = DataLoaderConfig(**map_params.get("data_loader", {}))
+    
+    # Define 50/50 sample split by mutation using cellline_split
+    split = cellline_split(screen, train_prop=0.5, type="CellLines")
+    split1_celllines = split["id_train"].to_series()
+    split2_celllines = split["id_test"].to_series()
+    
+    # Remove holdout cell lines from training sets
+    split1_celllines = list(set(split1_celllines) - set(holdout))
+    split2_celllines = list(set(split2_celllines) - set(holdout))
+
+    # Train on split1, predict on everything except split1
+    fit1, yp1, scalers1 = fit_split(
+        screen, model, split1_celllines, dataloader_config
+    )
+
+    # Train on split2, predict on everything except split2
+    fit2, yp2, scalers2 = fit_split(
+        screen, model, split2_celllines, dataloader_config
+    )
+
+    # Use Polars concat for predictions
+    predicted = pl.concat([yp1, yp2])
+
+    # Safely handle .to('cpu') if available
+    fitted_model1 = getattr(fit1, 'model', fit1)
+    fitted_model2 = getattr(fit2, 'model', fit2)
+
+    if isinstance(fitted_model1, torch.nn.Module):
+        fitted1 = copy.deepcopy(fitted_model1.to("cpu"))
+    else:
+        fitted1 = copy.deepcopy(fitted_model1)
+        
+    if isinstance(fitted_model2, torch.nn.Module):
+        fitted2 = copy.deepcopy(fitted_model2.to("cpu"))
+    else:
+        fitted2 = copy.deepcopy(fitted_model2)
+    
+    out = {
+        'fitted': [fitted1, fitted2],
+        'predicted': predicted,
+        'training_lines': [split1_celllines, split2_celllines],
+        'scalers': [scalers1, scalers2],
+        'importance': None
+    }
+
+    return out
+    
+    
+def sample_split_sklearn(
+    screen: 'ScreenBase', 
+    model: BaseModel, 
+    holdout: List = []) -> Dict:
+    """Sample split cross-validation for sklearn models.
+    
+    Performs 50/50 cell line split with reciprocal training on well-averaged
+    features. Each model is trained on one split and predicts on the 
+    complementary split. Predictions are centered around 0.5.
+    
+    Args:
+        screen (ScreenBase): Screen object with data and metadata.
+        model (BaseModel): SKLearnModel instance.
+        holdout (List[str], optional): Cell lines to exclude from training.
+            Defaults to [].
+        seed (int, optional): Random seed for split generation. Defaults to 47.
+        
+    Returns:
+        Dict: Dictionary containing:
+            - `fitted` (list): Two fitted models
+            - `predicted` (pl.DataFrame): Predictions joined with metadata, centered
+            - `importance` (pd.Series or None): Average feature importances
+    """
+    assert screen.data is not None, "screen data not loaded"
+    assert screen.metadata is not None, "screen metadata not loaded"
     
     out = {}
     
     # Define 50/50 sample split by mutation and set sporadics as hold-out
-    split = cellline_split(screen, train_prop=0.5, seed=seed)
+    split = cellline_split(screen, train_prop=0.5, type="CellLines")
 
-    id_holdout = screen.metadata \
-        .filter(pl.col("CellLines").is_in(holdout)) \
-        .select("ID") \
-        .to_series()
+    if holdout is not None:
+        id_holdout = screen.metadata \
+            .filter(pl.col("CellLines").is_in(holdout)) \
+            .select("ID") \
+            .to_series()
+    else:
+        id_holdout = pl.Series([])
              
     # Initialize data for model fitting
     y = screen.get_response() 
@@ -250,8 +481,11 @@ def sample_split(
     out['predicted'] = pl.concat([yp1, yp2]).join(screen.metadata, on="ID")
     
     # Generate model feature importance
-    imp1 = model.get_importance(fit1, x)
-    imp2 = model.get_importance(fit2, x)
-    out['importance'] = (imp1 + imp2) / 2
+    imp1 = model.get_importance(x)
+    imp2 = model.get_importance(x)
+    if imp1 is not None and imp2 is not None:
+        out['importance'] = (imp1 + imp2) / 2
+    else:
+        out['importance'] = None
         
     return out

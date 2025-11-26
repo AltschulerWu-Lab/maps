@@ -8,17 +8,55 @@ from maps.models import *
 from maps.fitters import *
 from sklearn import decomposition
 from sklearn.preprocessing import StandardScaler
+from typing import Union, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from maps.screens import ScreenBase
 
 class PCA():
-    def __init__(self, screen):
+    """Principal Component Analysis for dimensionality reduction.
+    
+    Performs PCA on molecular profiles (imaging features) aggregated by well
+    or other grouping. Useful for exploratory data analysis and visualization
+    of high-dimensional data.
+    
+    Attributes:
+        - `screen` (ScreenBase): Screen object containing data
+        - `fitted` (pl.DataFrame): PCA-transformed data with principal components
+        - `is_fitted` (bool): Whether PCA has been fitted
+    
+    Example:
+        ```python
+        pca = PCA(screen)
+        pca.fit()
+        # Access results
+        print(pca.fitted)
+        ```
+    """
+    def __init__(self, screen: 'ScreenBase'):
+        """Initialize PCA analysis.
+        
+        Args:
+            screen (ScreenBase): Screen object with loaded and preprocessed data.
+        """
         self.screen = screen
 
     def run(self):
         self.fit()
         self.outputs = {"tables": self.fitted}
         
-    def fit(self, group="ID"):
-        "Runs PCA on screen data, aggregated by well"
+    def fit(self, group: Union[str, List[str]] = "ID"):
+        """Run PCA on screen data aggregated by specified grouping.
+        
+        Features are standardized before PCA. Data is first aggregated by the
+        specified grouping variable(s), then PCA is performed on the aggregated
+        features.
+        
+        Args:
+            group (str or List[str], optional): Column(s) to group by before PCA.
+                Defaults to "ID" (well-level aggregation). Can be "ID" and another
+                column for hierarchical grouping.
+        """
         if group == "ID":
             group, drop = [group], None
         else:
@@ -46,27 +84,84 @@ class PCA():
         self.is_fitted = True
 
 class MAP():
-    def __init__(self, screen):
+    """Molecular ALS Phenotype (MAP) scoring analysis.
+    
+    Trains classification models to generate MAP scores (predicted probabilities)
+    for distinguishing ALS genetic backgrounds from healthy controls. Scores are
+    computed on held-out samples using cross-validation strategies defined by
+    fitters.
+    
+    Attributes:
+        - `screen` (ScreenBase): Screen object containing data
+        - `params` (dict): MAP analysis parameters from config
+        - `model` (BaseModel): Model instance for classification
+        - `fitter` (str): Name of fitter function to use
+        - `fitted` (Dict): Results dictionary from fitter containing predictions,
+            fitted models, and importances
+        - `is_fitted` (bool): Whether analysis has been fitted
+    
+    Example:
+        ```python
+        # Parameters should define model and fitter in config
+        map_analysis = MAP(screen)
+        map_analysis.fit()
+        # Access predictions
+        predictions = map_analysis.fitted["predicted"]
+        ```
+    """
+    def __init__(self, screen: 'ScreenBase'):
+        """Initialize MAP analysis from screen parameters.
+        
+        Args:
+            screen (ScreenBase): Screen object with params containing MAP
+                configuration under params["analysis"]["MAP"].
+                
+        Raises:
+            AssertionError: If MAP key not found in analysis parameters.
+        """
+        self.screen = screen
+        
         analysis_params = screen.params.get("analysis")
         assert("MAP" in analysis_params.keys())
         self.params = analysis_params.get("MAP")
         
         model = list(self.params.get("model").keys())[0]
-        self.model = eval(model)(self.params)
+        self.model = eval(model)(**self.params)
         
         self.fitter = self.params.get("fitter")
-        self.screen = screen
+        self.is_fitted = True
 
     def run(self):
+        """Run complete MAP scoring workflow.
+        
+        Fits models using specified fitter and stores results in outputs
+        dictionary.
+        """
         self.fit()
         self.outputs = {"tables": self.make_table()}
         
     def fit(self):
+        """Fit classification models using specified fitter.
+        
+        Calls the fitter function specified in params (e.g., leave_one_out,
+        sample_split) to train models and generate predictions on held-out data.
+        Results are stored in self.fitted.
+        """
         self.fitted = eval(self.fitter)(self.screen, self.model)
         self.is_fitted = True
 
-    def make_table(self):
-        "Standard MAP score table: MAP scores by single cell w/ cell metadata"
+    def make_table(self) -> pl.DataFrame:
+        """Generate standard MAP score table.
+        
+        Returns single-cell predictions with metadata joined.
+        
+        Returns:
+            pl.DataFrame: DataFrame with columns including ID, Ypred (MAP scores),
+                and metadata columns (CellLines, Mutations, etc.).
+                
+        Raises:
+            AssertionError: If fit() has not been called.
+        """
         assert(self.is_fitted) 
         return self.fitted["predicted"]
     

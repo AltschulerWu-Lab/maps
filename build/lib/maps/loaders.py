@@ -15,20 +15,61 @@ import pandas as pd
 import polars as pl   
 import numpy as np
 from pathlib import Path 
+from typing import Optional, List, Union, Tuple
 
 from maps.loader_utils import get_plate_id
 
     
 class OperettaLoader():
-    def __init__(self, params):
+    """Loader for Operetta High-Content Imaging System data.
+    
+    Handles loading of single-cell imaging data and plate metadata from Operetta
+    imaging screens. Supports caching via feather files for faster subsequent loads.
+    Data is organized by plates, with each plate containing an evaluation directory
+    with imaging features and a platemap with well metadata.
+    
+    Attributes:
+        - `params` (dict): Parameter dictionary from json config file
+        - `project_dir` (List[Path]): List of paths to screen directories
+        - `loader` (OperettaLoader): Loader instance for data I/O
+    
+    Example:
+        ```python
+        params = {"root": "/data/Experiments", "screen": "screen_001"}
+        loader = OperettaLoader(params)
+        metadata, data = loader.load_data(antibody="FUS/EEA1")
+        ```
+    """
+    def __init__(self, params: dict):
+        """Initialize OperettaLoader with parameters.
+        
+        Args:
+            params (dict): Configuration dictionary containing:
+                - `root` (str): Root directory path
+                - `screen` (str or List[str]): Screen identifier(s)
+                - `eval_dir` (str, optional): Evaluation subdirectory. Defaults to "Evaluation1"
+                - `data_file` (str, optional): Data filename. Defaults to "Objects_Population - Nuclei Selected.txt"
+                - `save_feather` (bool, optional): Whether to cache feather files. Defaults to True
+        """
         self.params = params
         self._set_project_dir()
         
         if params.get("save_feather", True):
             self._write_feather()
   
-    def load_metadata(self, plate_dir):
-        "Load in metadata for selected plate"
+    def load_metadata(self, plate_dir: str) -> pl.DataFrame:
+        """Load platemap metadata for a selected plate.
+        
+        Reads platemap CSV file containing well-level metadata (cell lines,
+        drugs, antibodies, etc.) and standardizes column names and identifiers.
+        
+        Args:
+            plate_dir (str): Path to plate directory.
+            
+        Returns:
+            pl.DataFrame: Metadata DataFrame with columns including Row, Column,
+                Well, CellLines, Drugs, Antibody, Channel, ID, PlateID.
+        """
         # Set platemap ath based on data path
         path_parts = Path(plate_dir).parts
         data_idx = path_parts.index("Data") if "Data" in path_parts else -1
@@ -68,10 +109,24 @@ class OperettaLoader():
         ) 
         
         return df   
-
  
-    def load_data(self, antibody=None):
-        "Wrapper function to load data/metadata and clean antibody names"
+    def load_data(self, antibody: Optional[Union[str, List[str]]] = None) -> Tuple[pl.DataFrame, pl.DataFrame]:
+        """Load data and metadata for selected antibody(ies).
+        
+        Loads all plates matching the specified antibody pattern, concatenates
+        data across plates, and filters to wells with data. Automatically counts
+        cells per well and adds screen information.
+        
+        Args:
+            antibody (str or List[str], optional): Antibody name(s) to filter.
+                Can be a single antibody string or list of antibodies. Must be
+                specified either here or in params.
+                
+        Returns:
+            Tuple[pl.DataFrame, pl.DataFrame]: Tuple of (metadata, data) where:
+                - metadata: Well-level metadata with ID, NCells, Screen columns
+                - data: Single-cell measurements with ID column for joining
+        """
         
         # Load platemaps for selected plates
         plates = self._get_plate_dirs() 
@@ -89,12 +144,34 @@ class OperettaLoader():
         df_group = df.group_by("ID").len().rename({"len": "NCells"})
         dfmeta = dfmeta.filter(pl.col("ID").is_in(df_group["ID"]))
         dfmeta = dfmeta.join(df_group, on="ID")
+
+        # Add screen information
+        dfmeta = dfmeta.with_columns(
+            pl.col("ID").str.split_exact("-", 1).struct.field("field_0").alias("Screen"))
         
-        return dfmeta, df 
+        # Only keep columns common to all screens
+        ## df case
+        df = df.select(
+            [col for col in df.columns if df.select(pl.col(col).is_null().sum()).item() < len(df)]
+        )
+        ## dfmeta case
+        dfmeta = dfmeta.select(
+            [col for col in dfmeta.columns if dfmeta.select(pl.col(col).is_null().sum()).item() < len(dfmeta)]
+        )
+        
+        return dfmeta, df
 
 
-    def list_antibodies(self, plate_ids=None):
-        "Wrapper function to load data/metadata and clean antibody names"
+    def list_antibodies(self, plate_ids: Optional[List[str]] = None) -> pl.Series:
+        """List unique antibodies available in the screen(s).
+        
+        Args:
+            plate_ids (List[str], optional): Plate IDs to filter. If None,
+                searches all plates in the screen.
+                
+        Returns:
+            pl.Series: Unique antibody names found in the specified plates.
+        """
         
         # Load platemaps for selected plates
         if plate_ids is None:
@@ -110,7 +187,14 @@ class OperettaLoader():
 
   
     def _set_project_dir(self):
-        "Initialize path to screen data directory"
+        """Initialize path to screen data directory.
+        
+        Validates that screen directories exist and stores them in project_dir.
+        Supports loading from multiple screens simultaneously.
+        
+        Raises:
+            FileExistsError: If screen directory does not exist.
+        """
         root = self.params.get("root")
         root = "/home/kkumbier/als/data/Experiments" if root is None else root
         
@@ -131,8 +215,20 @@ class OperettaLoader():
         
         self.project_dir = project_dir
    
-    def _get_antibody_plates(self, dfmeta, plates, antibody):
-        "Filter plates to those containing the specified antibody"
+    def _get_antibody_plates(self, dfmeta: pl.DataFrame, plates: List[str], antibody: Union[str, List[str]]) -> List[str]:
+        """Filter plates to those containing the specified antibody.
+        
+        Args:
+            dfmeta (pl.DataFrame): Metadata DataFrame containing Antibody column.
+            plates (List[str]): List of plate directory paths.
+            antibody (str or List[str]): Antibody name(s) to match.
+            
+        Returns:
+            List[str]: Filtered list of plate directory paths matching antibody.
+            
+        Raises:
+            AssertionError: If antibody is None.
+        """
         assert antibody is not None, "Antibody must be specified"
         if type(antibody) is list:
             antibody = "|".join(antibody)
@@ -142,8 +238,14 @@ class OperettaLoader():
         return [p for p in plates if re.search(id_re, p)]
         
     
-    def _get_plate_dirs(self):
-        """Traverse project directory to find subdirectories for each plate. Return value will be a dict with screen_id as key and plate list as values
+    def _get_plate_dirs(self) -> List[str]:
+        """Traverse project directory to find subdirectories for each plate.
+        
+        Searches for plate directories containing the specified evaluation
+        directory (default: Evaluation1).
+        
+        Returns:
+            List[str]: List of paths to plate directories.
         """
         
         plate_dirs = []
@@ -158,8 +260,15 @@ class OperettaLoader():
         return plate_dirs
    
         
-    def _get_data_file(self, plate_dir):
-        "Set paths to data file for a given plate"
+    def _get_data_file(self, plate_dir: str) -> str:
+        """Get path to data file for a given plate.
+        
+        Args:
+            plate_dir (str): Path to plate directory.
+            
+        Returns:
+            str: Full path to data file.
+        """
         fname = self.params.get(
             "data_file", "Objects_Population - Nuclei Selected.txt"
         )
@@ -169,7 +278,12 @@ class OperettaLoader():
             
      
     def _write_feather(self):
-        "Write feather files for each plate's data."
+        """Write feather files for each plate's data.
+        
+        Creates cached feather files for faster subsequent loads. Only creates
+        files that don't already exist. This is called automatically during
+        initialization if save_feather=True in params.
+        """
         plate_dirs = self._get_plate_dirs()
         eval_dir = self.params.get("eval_dir", "Evaluation1")
         
@@ -182,8 +296,22 @@ class OperettaLoader():
                 df.write_ipc(out_path)
        
            
-    def _clean_data(self, df, plate_dir):
-        "Clean and standardize data after loading"
+    def _clean_data(self, df: pl.DataFrame, plate_dir: str) -> pl.DataFrame:
+        """Clean and standardize data after loading.
+        
+        Filters to imaging features and metadata columns, standardizes column
+        names, creates well identifiers (ID), and drops unnecessary columns.
+        
+        Args:
+            df (pl.DataFrame): Raw data DataFrame.
+            plate_dir (str): Path to plate directory.
+            
+        Returns:
+            pl.DataFrame: Cleaned DataFrame with ID column and standardized names.
+            
+        Raises:
+            ValueError: If no imaging feature columns are found.
+        """
         # Filter to imaging features & row, col metadata, clean column names
         available_cols = df.columns
         pattern_cols = [col for col in available_cols if 
@@ -219,8 +347,18 @@ class OperettaLoader():
             
         return df
     
-    def _load_from_csv(self, plate_dir):
-        "Load in data for selected plate from csv file"
+    def _load_from_csv(self, plate_dir: str) -> pl.DataFrame:
+        """Load data for selected plate from CSV file.
+        
+        Parses Operetta CSV format, skipping header lines and setting appropriate
+        schema for data types.
+        
+        Args:
+            plate_dir (str): Path to plate directory.
+            
+        Returns:
+            pl.DataFrame: Cleaned data DataFrame.
+        """
         data_file = self._get_data_file(plate_dir)
         
         # Get starting line of data
@@ -252,8 +390,18 @@ class OperettaLoader():
         df = self._clean_data(df, plate_dir)
         return df
 
-    def _load_from_feather(self, plate_dir):
-        "Load in data for selected plate from feather file"
+    def _load_from_feather(self, plate_dir: str) -> pl.DataFrame:
+        """Load data for selected plate from feather file.
+        
+        Args:
+            plate_dir (str): Path to plate directory.
+            
+        Returns:
+            pl.DataFrame: Data DataFrame.
+            
+        Raises:
+            FileNotFoundError: If feather file does not exist.
+        """
         path = Path(plate_dir) / self.params.get("eval_dir", "Evaluation1")
         path = path / f"{get_plate_id(plate_dir)}.feather"
         
@@ -263,8 +411,18 @@ class OperettaLoader():
         df = pl.read_ipc(path) 
         return df
     
-    def _load_data(self, plate_dir):
-        "Load in data for selected plate, prioritizing feather files"
+    def _load_data(self, plate_dir: str) -> pl.DataFrame:
+        """Load data for selected plate, prioritizing feather files.
+        
+        Attempts to load from cached feather file first, falling back to CSV
+        if feather file doesn't exist.
+        
+        Args:
+            plate_dir (str): Path to plate directory.
+            
+        Returns:
+            pl.DataFrame: Data DataFrame.
+        """
         path = Path(plate_dir) / self.params.get("eval_dir", "Evaluation1")
         path = path / f"{get_plate_id(plate_dir)}.feather"
         
@@ -284,3 +442,4 @@ if __name__ == "__main__":
         
     self = OperettaLoader(params)
     dfmeta, df = self.load_data(antibody="FUS/EEA1")
+    print('Data loaded successfully')
