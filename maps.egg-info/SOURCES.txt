@@ -19,6 +19,9 @@ maps.egg-info/SOURCES.txt
 maps.egg-info/dependency_links.txt
 maps.egg-info/requires.txt
 maps.egg-info/top_level.txt
+maps/archive/__init__.py
+maps/archive/figures.py
+maps/archive/utils.py
 maps/multiantibody/__init__.py
 maps/multiantibody/config.py
 maps/multiantibody/data_loaders.py
