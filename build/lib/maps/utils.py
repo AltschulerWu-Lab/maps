@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import re
+import polars as pl
 from maps.archive.utils import adjust_map_scores, fit_size_model
 
 # ============================================================================
