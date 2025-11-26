@@ -55,7 +55,7 @@ def leave_one_out_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     assert screen.metadata is not None, "screen metadata not loaded"
     
     metadata = merge_metadata(screen)
-    mutations = metadata["Mutations"].unique()
+    mutations = metadata["Mutations"].unique().sort()
     mutations = set(mutations) - set(["WT", "sporadic"])
     out = {}
     
@@ -130,6 +130,7 @@ def leave_one_out_sklearn(
         screen.metadata
         .select("CellLines")
         .unique()
+        .sort("CellLines")
         .to_series()
         .to_list()
     )
@@ -204,8 +205,11 @@ def leave_one_out_pytorch(
     dataloader_config = DataLoaderConfig(**map_params.get("data_loader", {}))
 
     # Get all cell lines
-    cell_lines = [s["CellLines"].unique() for s in screen.metadata.values()]
-    cell_lines = pl.concat(cell_lines).to_list()
+    if isinstance(screen.metadata, dict):
+        cell_lines = [s["CellLines"].unique().sort() for s in screen.metadata.values()]
+        cell_lines = pl.concat(cell_lines).unique().sort().to_list()
+    else:
+        cell_lines = screen.metadata["CellLines"].unique().sort().to_list()
     cell_lines = list(set(cell_lines) - set(holdout))
 
     fitted, predicted, scalers_list, split = [], [], [], []
@@ -266,7 +270,7 @@ def sample_split_mut(screen: 'ScreenBase', model: BaseModel) -> Dict:
     assert screen.metadata is not None, "screen metadata not loaded"
 
     metadata = merge_metadata(screen)
-    mutations = metadata["Mutations"].unique()
+    mutations = metadata["Mutations"].unique().sort()
     mutations = set(mutations) - set(["WT", "sporadic"])
     
     out = {}

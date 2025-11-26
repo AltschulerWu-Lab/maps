@@ -33,7 +33,6 @@ class ImagingDataset(Dataset):
         grouping: str = "CellLines", 
         response_map: Optional[Dict[str, Dict[Any, int]]] = None,
         n_cells: int = 10,
-        seed: Optional[int] = None,
         scale: bool = False,
         scaler: Optional[Any] = None
     ):
@@ -46,7 +45,6 @@ class ImagingDataset(Dataset):
             grouping: Column name for grouping variable (default: "cell_lines")
             response_map: Mapping from response strings to numeric labels
             n_cells: Number of samples to sample per group
-            seed: Random seed for reproducible sampling
         """
         if isinstance(response, str):
             response = [response]
@@ -63,11 +61,6 @@ class ImagingDataset(Dataset):
         self.response_map = response_map  
         self.scale = scale
         self.scaler = scaler
-
-        if seed is not None:
-            random.seed(seed)
-            np.random.seed(seed)
-            torch.manual_seed(seed)
 
         # Prepare the dataset
         self._prepare_data()
@@ -207,9 +200,11 @@ class MultiAntibodyLoader(DataLoader):
         cell_lines = {}
         for ab in self.keys:
             ds = data_loader_dict[ab].dataset
+            # Sort metadata first for consistent ordering
+            sorted_meta = ds.metadata.sort(['CellLines', 'Mutations'])
             cl_mut_pairs = set(zip(
-                ds.metadata['CellLines'].to_list(), 
-                ds.metadata['Mutations'].to_list()
+                sorted_meta['CellLines'].to_list(), 
+                sorted_meta['Mutations'].to_list()
             ))
             cell_lines[ab] = cl_mut_pairs
        
@@ -226,7 +221,7 @@ class MultiAntibodyLoader(DataLoader):
        
         self.mutation_counts = self.cell_lines.group_by("Mutations").agg(
             [pl.count("CellLines").alias("count")]
-        )    
+        ).sort("Mutations")    
         
         self.balanced_cell_lines = self._balance_sample() 
         self.batch_size = data_loader_dict[self.keys[0]].batch_size
@@ -247,8 +242,9 @@ class MultiAntibodyLoader(DataLoader):
         
         # Shuffle cell lines at the start of each epoch if enabled
         if self.shuffle:
-            self.balanced_cell_lines = self.balanced_cell_lines.sample(
-                fraction=1.0, shuffle=True
+            # Use pandas for sampling to respect np.random.seed()
+            self.balanced_cell_lines = pl.DataFrame(
+                self.balanced_cell_lines.to_pandas().sample(frac=1.0)
             )   
         
         return self
@@ -361,7 +357,6 @@ def create_multiantibody_dataloader(
     batch_size: int = 8,
     shuffle: bool = True,
     num_workers: int = 0,
-    seed: Optional[int] = None,
     scale: bool = False,
     scalers: Optional[Dict[str, Any]] = None,
     select_samples: Optional[List[str]] = None,
@@ -416,7 +411,6 @@ def create_multiantibody_dataloader(
             response_map=response_map,
             grouping=grouping,
             n_cells=n_cells,
-            seed=seed,
             scale=scale,
             scaler=antibody_scaler
         )

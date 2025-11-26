@@ -15,12 +15,11 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import re
-
+from maps.archive.utils import adjust_map_scores, fit_size_model
 
 # ============================================================================
 # Count Correction Functions
 # ============================================================================
-
 def fit_count_correction_model(
     df: pd.DataFrame,
     cellline_to_mutation: Dict[str, str],
@@ -586,3 +585,14 @@ def aggregate_scores_by_cellline(
     result = df.groupby('CellLines').agg(agg_dict).reset_index()
     
     return result
+
+
+def group_predicted(predicted, group, score="Class_1"):
+    "Average MAP scores by grouping variable"
+    df = predicted \
+        .group_by(group) \
+        .agg(pl.col(score).mean().alias(score)) \
+        .sort(score) \
+        .to_pandas() 
+        
+    return df
